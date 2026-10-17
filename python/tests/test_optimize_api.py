@@ -95,7 +95,8 @@ class Api(unittest.TestCase):
             ({"vary": [{"key": "length", "min": 50, "max": 66, "start": 70}]}, "vary.0"),
             ({"goals": [{"kind": "s11_max", "target": -20}]}, "goals.0"),  # needs a frequency
             ({"goals": [{"kind": "gain", "target": 3}]}, "goals.0"),
-            ({"max_evals": 41}, "max_evals"),
+            ({"max_evals": 201}, "max_evals"),
+            ({"resume": "yes"}, "resume"),
             ({"method": "secant", "vary": [{"key": "length", "min": 50, "max": 66}, {"key": "gap", "min": 0.5, "max": 2}]},
              "method"),
         ]

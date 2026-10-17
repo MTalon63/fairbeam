@@ -12,9 +12,10 @@ import { radioGroupKeys } from "../lib/a11y";
 import { bundle, dockTab, farfieldIndex, setDockTab, setFarfieldIndex, setLayers, source, type DockTab } from "../state";
 import { hasSParameterPhase, sMatrix } from "../lib/sparams";
 import { nearestIndex, patternCut, sweep } from "../lib/rf";
+import { minus } from "../charts/labels";
 import { freqText, ghzText, num, withUnit } from "../lib/format";
 import { efficiencyIssue, efficiencyWarningUi } from "../lib/runText";
-import { effectiveQuantity, farfieldSummary, QUANTITY_LABEL, quantityGrid, quantityMax } from "../lib/farfieldQuantity";
+import { effectiveQuantity, farfieldSummary, polarizationLabel, polarizationSummary, QUANTITY_LABEL, quantityGrid, quantityMax } from "../lib/farfieldQuantity";
 import { patternQuantity } from "../lib/patternQuantityStore";
 import { PatternQuantitySelect, totalEffText } from "./FarfieldCard";
 import type { Signals } from "../types";
@@ -609,6 +610,18 @@ export default function Dock() {
                           </dd>
                           <dt title={t("farfield.totalTitlePort")}>{t("farfield.total")}</dt>
                           <dd class="mono">{ffSummary()?.totalEff != null ? totalEffText(ffSummary()!.totalEff!) : "—"}</dd>
+                          <Show when={ff() && polarizationSummary(ff()!)}>{(p) => (
+                            <>
+                              <dt title={t("farfield.polarizationTitle")}>{t("farfield.polarization")}</dt>
+                              <dd class="mono">{polarizationLabel(p())}</dd>
+                              <dt title={t("farfield.axialRatioTitle")}>{t("farfield.axialRatio")}</dt>
+                              <dd class="mono">{withUnit(num(p().axialRatioDb, 2), "dB")}</dd>
+                              <dt title={t("farfield.rhcpLhcpTitle")}>{t("farfield.rhcpLhcp")}</dt>
+                              <dd class="mono">{`${num(p().rhcpDbi, 2)} / ${minus(num(p().lhcpDbi, 2))} dBi`}</dd>
+                              <dt title={t("farfield.xpdTitle")}>{t("farfield.xpd")}</dt>
+                              <dd class="mono">{withUnit(num(p().xpdDb, 2), "dB")}</dd>
+                            </>
+                          )}</Show>
                         </>}
                       >
                         <dt>{t("results.pattern.frequency")}</dt><dd class="mono">{freqText(storedFF()!.f)}</dd>

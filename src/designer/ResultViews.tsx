@@ -21,11 +21,12 @@ import { createSParamSelection, SParamSmithCompare, SParamTools } from "../compo
 import { cutPhi, setCutPhi, setZPart, zPart } from "../compare/store";
 import { radioGroupKeys } from "../lib/a11y";
 import { bandTexts } from "../lib/bands";
+import { minus } from "../charts/labels";
 import { freqText, ghzText, num, withUnit } from "../lib/format";
 import { nearestIndex, patternCut, sweep } from "../lib/rf";
 import { mappedPairLabel, pairLabel, sMatrix } from "../lib/sparams";
 import { efficiencyIssue, efficiencyWarningUi } from "../lib/runText";
-import { efficiencyData, effectiveQuantity, farfieldSummary, QUANTITY_LABEL, quantityGrid, quantityMax, toDb, type PortEfficiency } from "../lib/farfieldQuantity";
+import { efficiencyData, effectiveQuantity, farfieldSummary, polarizationLabel, polarizationSummary, QUANTITY_LABEL, quantityGrid, quantityMax, toDb, type PortEfficiency } from "../lib/farfieldQuantity";
 import { efficiencyUnit, patternQuantity, setEfficiencyUnit } from "../lib/patternQuantityStore";
 import { lobeText, PatternQuantitySelect, quantityFallbackNote, totalEffText } from "../components/FarfieldCard";
 import type { DownloadResult } from "../lib/download";
@@ -436,6 +437,18 @@ function ResultPattern(props: { b: Bundle }) {
             <dt title={t("farfield.totalTitlePort")}>{t("farfield.total")}</dt>
             <dd class="mono">{summary()?.totalEff != null ? totalEffText(summary()!.totalEff!) : "—"}</dd>
             <dt title={t("farfield.lobeTitle")}>{t("farfield.mainLobe")}</dt><dd class="mono">{summary() ? lobeText(summary()!.peak) : "—"}</dd>
+            <Show when={ff() && polarizationSummary(ff()!)}>{(p) => (
+              <>
+                <dt title={t("farfield.polarizationTitle")}>{t("farfield.polarization")}</dt>
+                <dd class="mono">{polarizationLabel(p())}</dd>
+                <dt title={t("farfield.axialRatioTitle")}>{t("farfield.axialRatio")}</dt>
+                <dd class="mono">{withUnit(num(p().axialRatioDb, 2), "dB")}</dd>
+                <dt title={t("farfield.rhcpLhcpTitle")}>{t("farfield.rhcpLhcp")}</dt>
+                <dd class="mono">{`${num(p().rhcpDbi, 2)} / ${minus(num(p().lhcpDbi, 2))} dBi`}</dd>
+                <dt title={t("farfield.xpdTitle")}>{t("farfield.xpd")}</dt>
+                <dd class="mono">{withUnit(num(p().xpdDb, 2), "dB")}</dd>
+              </>
+            )}</Show>
             <Show when={new Set(ffs().map((f) => f.port)).size > 1}><dt>{t("farfield.drivenPort")}</dt><dd class="mono">P{summary()?.port ?? "?"}</dd></Show>
             <dt>θ = 0°</dt><dd>+z</dd>
           </dl>

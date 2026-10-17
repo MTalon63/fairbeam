@@ -1145,6 +1145,8 @@ function SimulationInspector() {
           onBlur={() => setFreqText(null)}
           onChange={(v) => { setFreqText(v); edit((d) => { const list = v.split(",").map((x) => x.trim()).filter(Boolean).map(toExpr); d.far_field.frequencies = list; }, "fff"); }} />
         <For each={draft.far_field.frequencies ?? []}>{(_, k) => <GroupIssue path={`far_field.frequencies[${k()}]`} />}</For>
+        <label class="dz-check"><input type="checkbox" checked={draft.far_field.cp_outputs ?? false}
+          onChange={(e) => { const c = e.currentTarget.checked; edit((d) => { d.far_field.cp_outputs = c ? true : undefined; }, "ff-cp"); }} /> {t("props.sim.cpOutputs")}</label>
       </Show>
     </div>
   );

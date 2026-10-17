@@ -424,6 +424,8 @@
     {"name": "far-field box faces: not six flags", "set": {"far_field.faces": [true, true]}, "expect": ["error|expr|far_field.faces"]},
     {"name": "far-field box face on a PEC wall", "set": {"simulation.boundaries": ["MUR", "MUR", "MUR", "MUR", "PEC", "MUR"], "far_field.faces": [true, true, true, true, true, true]}, "expect": ["warning|nf2ff-pec|far_field.faces[4]"]},
     {"name": "far-field box faces: one boundary string, PEC on every enabled face", "set": {"simulation.boundaries": "PEC", "far_field.faces": [true, false, false, false, false, true]}, "expect": ["warning|nf2ff-pec|far_field.faces[0]", "warning|nf2ff-pec|far_field.faces[5]"]},
+    {"name": "circular-polarisation outputs on", "set": {"far_field.cp_outputs": true}, "expect": []},
+    {"name": "circular-polarisation outputs not a boolean", "set": {"far_field.cp_outputs": 1}, "expect": ["error|expr|far_field.cp_outputs"]},
     {"name": "efficiency over the band", "set": {"monitors": {"efficiency": {"points": 21}}}, "expect": []},
     {"name": "efficiency over the band, default points", "set": {"monitors": {"efficiency": {}}}, "expect": []},
     {"name": "efficiency over the band, too few points", "set": {"monitors": {"efficiency": {"points": 2}}},

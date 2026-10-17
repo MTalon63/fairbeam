@@ -582,6 +582,8 @@ class JobManager:
             cmd += ["--goal", text]
         if o.get("excite") and o["excite"] != "auto":
             cmd += ["--excite", o["excite"]]
+        if o.get("resume"):
+            cmd += ["--resume"]
         if job.requested_end_criteria_db is not None:  # `fairbeam optimize --end-db`, every evaluation
             cmd.append(end_db_arg(job.requested_end_criteria_db))
         for k, v in job.overrides.items():

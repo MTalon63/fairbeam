@@ -22,6 +22,11 @@ Goals, combinable with weights (``*w``):
 - ``s11_max=<dB>@<GHz>``: |S11| at a frequency below a level. Cost (excess / 3 dB)².
 - ``bw_min=<MHz>``: -10 dB bandwidth of the band around f0 (or the first band). Cost (shortfall / 10 %)².
 - ``dmax_min=<dBi>@<GHz>``: directivity at a frequency. Cost (shortfall / 0.5 dB)².
+- Circular polarisation (the far field's ``cp``; a polarization goal switches ``Simulation.cp_outputs`` on):
+  ``ar_max=<dB>@<GHz>`` axial ratio at the directivity peak at most, cost (excess / 0.5 dB)²;
+  ``rhcp_min=<dBi>@<GHz>`` RHCP partial directivity at the peak at least, cost (shortfall / 0.5 dB)²;
+  ``xpd_min=<dB>@<GHz>`` cross-polarization discrimination |RHCP - LHCP| at the peak at least,
+  cost (shortfall / 1 dB)².
 - Multi-port (``results.sparams``; port numbers as in the model):
   ``sij_max=<dB>@<GHz>:<i>,<j>`` |S_ij| at most (isolation, e.g. S23), cost (excess / 3 dB)²;
   ``sij_min=<dB>@<GHz>:<i>,<j>`` |S_ij| at least (transmission, e.g. S21), cost (shortfall / 0.5 dB)²;
@@ -48,10 +53,13 @@ let the run server show the run live.
 
 from __future__ import annotations
 
+import gc
+import hashlib
 import json
 import math
 import os
 import re
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -62,10 +70,78 @@ import numpy as np
 from .jsonutil import finite_json
 
 OPT_SCHEMA = "fairbeam.optimization/1"
-GOAL_KINDS = ("f0", "s11_max", "bw_min", "dmax_min", "sij_max", "sij_min", "match_all")
-FREQ_GOALS = ("s11_max", "dmax_min", "sij_max", "sij_min", "match_all")
+GOAL_KINDS = ("f0", "s11_max", "bw_min", "dmax_min", "ar_max", "rhcp_min", "xpd_min", "sij_max", "sij_min", "match_all")
+FREQ_GOALS = ("s11_max", "dmax_min", "ar_max", "rhcp_min", "xpd_min", "sij_max", "sij_min", "match_all")
 PAIR_GOALS = ("sij_max", "sij_min")
+#: goals read from the far field; the polarization ones also switch the circular-polarisation outputs on
+FAR_GOALS = ("dmax_min", "ar_max", "rhcp_min", "xpd_min")
+POLARIZATION_GOALS = ("ar_max", "rhcp_min", "xpd_min")
 METHOD_CHOICES = ("auto", "secant", "nelder-mead", "bayesian", "cma-es", "particle-swarm", "genetic", "trust-region")
+#: soft memory stop when no explicit limit is given: this fraction of physical RAM
+DEFAULT_MEMORY_FRACTION = 0.8
+#: environment override for the optimizer's memory limit, in MB (0 disables the guard)
+MEMORY_ENV = "FAIRBEAM_OPT_MEMORY_MB"
+
+
+def _process_rss_bytes() -> int | None:
+    """Resident memory of this process in bytes (peak on POSIX, working set on Windows), or None."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class _Counters(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                            ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+
+            counters = _Counters()
+            counters.cb = ctypes.sizeof(counters)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            # GetCurrentProcess returns a 64-bit pseudo-handle: an explicit HANDLE restype keeps ctypes
+            # from truncating it to 32 bits (which made the probe always fail on x64 Windows)
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters), wintypes.DWORD]
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+                return None
+            return int(counters.WorkingSetSize)
+        import resource
+        rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        return rss if sys.platform == "darwin" else rss * 1024  # macOS bytes, Linux KiB
+    except Exception:  # noqa: BLE001 - a probe must never stop a run
+        return None
+
+
+def _total_memory_bytes() -> int | None:
+    """Physical memory of the machine in bytes, or None when it cannot be read."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class _MemoryStatus(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+            status = _MemoryStatus()
+            status.dwLength = ctypes.sizeof(status)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(_MemoryStatus)]
+            kernel32.GlobalMemoryStatusEx.restype = ctypes.c_int
+            if not kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return None
+            return int(status.ullTotalPhys)
+        pages = os.sysconf("SC_PHYS_PAGES")
+        size = os.sysconf("SC_PAGE_SIZE")
+        return int(pages) * int(size) if pages > 0 and size > 0 else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 class Stop(Exception):
@@ -87,7 +163,8 @@ class Goal:
     ports: tuple[int, int] | None = None  # (i, j) for sij_max / sij_min
 
     def label(self) -> str:
-        unit = {"f0": " GHz", "s11_max": " dB", "bw_min": " MHz", "dmax_min": " dBi", "sij_max": " dB",
+        unit = {"f0": " GHz", "s11_max": " dB", "bw_min": " MHz", "dmax_min": " dBi", "ar_max": " dB",
+                "rhcp_min": " dBi", "xpd_min": " dB", "sij_max": " dB",
                 "sij_min": " dB", "match_all": " dB"}[self.kind]
         at = f" @ {self.at:g} GHz" if self.at is not None else ""
         w = f" ×{self.weight:g}" if self.weight != 1 else ""
@@ -123,8 +200,9 @@ class Vary:
 
 
 def parse_goal(text: str) -> Goal:
-    """``f0=2.45``, ``s11_max=-25@2.45``, ``bw_min=150*2``, ``dmax_min=5@2.4``, ``sij_max=-25@2.4:2,3``,
-    ``sij_min=-3.2@2.4:2,1``, ``match_all=-20@2.4``."""
+    """``f0=2.45``, ``s11_max=-25@2.45``, ``bw_min=150*2``, ``dmax_min=5@2.4``, ``ar_max=3@2.4``,
+    ``rhcp_min=5@2.4``, ``xpd_min=15@2.4``, ``sij_max=-25@2.4:2,3``, ``sij_min=-3.2@2.4:2,1``,
+    ``match_all=-20@2.4``."""
     m = re.fullmatch(r"\s*(\w+)\s*=\s*([-+0-9.eE]+)\s*(?:@\s*([-+0-9.eE]+))?\s*(?::\s*(\d+)\s*,\s*(\d+))?"
                      r"\s*(?:\*\s*([0-9.eE]+))?\s*", text or "")
     if not m or m.group(1) not in GOAL_KINDS:
@@ -157,7 +235,7 @@ def make_goal(kind: str, target: float, at: float | None = None, weight: float =
         ports = None
     if kind in ("sij_max", "match_all") and target >= 0:
         raise ValueError(f"{kind}: target must be negative dB")
-    if kind in ("f0", "bw_min") and not target > 0:
+    if kind in ("f0", "bw_min", "ar_max", "xpd_min") and not target > 0:
         raise ValueError(f"{kind}: target must be positive")
     if kind == "s11_max" and target >= 0:
         raise ValueError("s11_max: target must be negative dB")
@@ -242,7 +320,7 @@ def bundle_metrics(bundle: dict, goals: list[Goal]) -> dict:
 
     res = bundle.get("results") or {}
     out: dict = {"f0_ghz": None, "f0_source": None, "s11_min_db": None, "bw_mhz": None,
-                 "s11_at": {}, "dmax_at": {}, "dmax_dbi": None}
+                 "s11_at": {}, "dmax_at": {}, "ar_at": {}, "rhcp_at": {}, "xpd_at": {}, "dmax_dbi": None}
     key = _excited_key(bundle)
     if key is None:
         return out
@@ -287,10 +365,22 @@ def bundle_metrics(bundle: dict, goals: list[Goal]) -> dict:
         if g.kind == "s11_max":
             inside = len(f) and f[0] - 1e-9 <= g.at <= f[-1] + 1e-9
             out["s11_at"][f"{g.at:g}"] = round(float(np.interp(g.at, f, sdb)), 3) if inside else None
-        if g.kind == "dmax_min" and ffs:
+        if g.kind in FAR_GOALS and ffs:
             ff = min(ffs, key=lambda e: abs(e["f"] / 1e9 - g.at))
             # a pattern more than 2 % away from the goal frequency does not answer the goal
-            out["dmax_at"][f"{g.at:g}"] = ff["dmax_dbi"] if abs(ff["f"] / 1e9 - g.at) <= 0.02 * g.at else None
+            near = abs(ff["f"] / 1e9 - g.at) <= 0.02 * g.at
+            key_at = f"{g.at:g}"
+            if g.kind == "dmax_min":
+                out["dmax_at"][key_at] = ff["dmax_dbi"] if near else None
+            else:
+                peak = (ff.get("cp") or {}).get("peak") or {}
+                if g.kind == "ar_max":
+                    out["ar_at"][key_at] = peak.get("axial_ratio_db") if near else None
+                elif g.kind == "rhcp_min":
+                    out["rhcp_at"][key_at] = peak.get("rhcp_dbi") if near else None
+                else:  # xpd_min
+                    r, l = peak.get("rhcp_dbi"), peak.get("lhcp_dbi")
+                    out["xpd_at"][key_at] = abs(r - l) if near and r is not None and l is not None else None
     if ffs:
         out["dmax_dbi"] = ffs[0]["dmax_dbi"]
     run = bundle.get("run") or {}
@@ -330,6 +420,24 @@ def _goal_cost(g: Goal, m: dict, f0_tol_pct: float = 0.25) -> tuple[float, bool,
             return PENALTY, False, None
         short = max(0.0, g.target - v)
         return (short / 0.5) ** 2, short == 0.0, v
+    if g.kind == "ar_max":
+        v = (m.get("ar_at") or {}).get(f"{g.at:g}")
+        if v is None:
+            return PENALTY, False, None
+        excess = max(0.0, v - g.target)
+        return (excess / 0.5) ** 2, excess == 0.0, v
+    if g.kind == "rhcp_min":
+        v = (m.get("rhcp_at") or {}).get(f"{g.at:g}")
+        if v is None:
+            return PENALTY, False, None
+        short = max(0.0, g.target - v)
+        return (short / 0.5) ** 2, short == 0.0, v
+    if g.kind == "xpd_min":
+        v = (m.get("xpd_at") or {}).get(f"{g.at:g}")
+        if v is None:
+            return PENALTY, False, None
+        short = max(0.0, g.target - v)
+        return (short / 1.0) ** 2, short == 0.0, v
     if g.kind in PAIR_GOALS:
         v = (m.get("sij_at") or {}).get(f"{g.ports[0]},{g.ports[1]}@{g.at:g}")
         if v is None:
@@ -663,8 +771,11 @@ def tune_f0(d: Driver, goal: Goal, x0: float, max_steps: int = 40) -> str:
 
 def optimize(vary: list[Vary], goals: list[Goal], evaluate: Evaluator, *, method: str = "auto", seed: int = 0,
              max_evals: int = 12, start: dict | None = None, f0_tol_pct: float = 0.25,
-             on_eval: Callable[[dict], None] | None = None) -> dict:
-    """Run the search; returns ``{method, history, best, start, reason}``."""
+             prior: list[dict] | None = None, on_eval: Callable[[dict], None] | None = None) -> dict:
+    """Run the search; returns ``{method, history, best, start, reason}``. ``prior``: entries of an earlier
+    run of the same problem (``resume``). They seed the cache, so those points are returned from
+    memory instead of simulated again and count against ``max_evals``; the search itself restarts
+    from the best prior point (the algorithm's internal state is not checkpointed)."""
     if not vary:
         raise ValueError("vary at least one parameter")
     if not goals:
@@ -676,6 +787,17 @@ def optimize(vary: list[Vary], goals: list[Goal], evaluate: Evaluator, *, method
     if method == "secant" and (len(vary) != 1 or not any(g.kind == "f0" for g in goals)):
         raise ValueError("secant needs one parameter and an f0 goal")
     d = Driver(vary, goals, evaluate, max_evals=max_evals, f0_tol_pct=f0_tol_pct, on_eval=on_eval)
+    if prior:
+        for e in prior:
+            p = e.get("params") or {}
+            key = tuple(p.get(v.key) for v in vary)
+            if all(x is not None for x in key):
+                d.cache[key] = e
+                d.history.append(e)
+        if d.history:
+            d.best = min(d.history, key=lambda x: x.get("cost", PENALTY))
+            if start is None:
+                start = dict(d.best.get("params") or {})
     x0 = [v.snap(v.start if v.start is not None else (start or {}).get(v.key, (v.lo + v.hi) / 2)) for v in vary]
     rng=np.random.default_rng(seed)
     try:
@@ -751,7 +873,8 @@ def run_optimization(model_path: str, vary: list[Vary], goals: list[Goal], *, fi
                      name: str | None = None, out: Path, sim_root: Path, method: str = "auto", seed: int = 0, max_evals: int = 12,
                      threads: int = 4, engine: str = "cpu", end_db: float | None = None, points: int = 801,
                      f0_tol_pct: float = 0.25, farfield: bool | None = None, excite: str = "auto",
-                     keep_sim: bool | None = None, check_candidates: bool = True, log=print) -> dict:
+                     keep_sim: bool | None = None, check_candidates: bool = True, resume: bool = False,
+                     memory_limit_mb: float | None = None, log=print) -> dict:
     """``keep_sim``: keep every evaluation's raw openEMS folder (default: ``FAIRBEAM_KEEP_SIM``);
     otherwise it is removed as soon as the evaluation's bundle is written. ``check_candidates``:
     for a design, skip the candidates the design checks refuse (:func:`precheck`) instead of
@@ -793,13 +916,59 @@ def run_optimization(model_path: str, vary: list[Vary], goals: list[Goal], *, fi
     name = name or _slug(module.MODEL["id"] + "--opt", {v.key: f"{v.lo:g}-{v.hi:g}" for v in vary})
     opt_dir = Path(out) / "optimizations"
     member_dir = opt_dir / name
-    pattern = sorted({g.at * 1e9 for g in goals if g.kind == "dmax_min"})
+    pattern = sorted({g.at * 1e9 for g in goals if g.kind in FAR_GOALS})
     want_ff = bool(pattern) or bool(farfield)
+    want_cp = any(g.kind in POLARIZATION_GOALS for g in goals)
     keep = keep_sim_requested() if keep_sim is None else keep_sim
     raw_dir = Path(sim_root).absolute() / "optimizations" / name
     design = getattr(module, "DESIGN", None)
     refuse = precheck(design, base) if check_candidates and isinstance(design, dict) else None
     warned_legacy_nf2ff = False
+    # soft memory stop: an explicit MB (argument or FAIRBEAM_OPT_MEMORY_MB), else a fraction of physical
+    # RAM. A run that crosses it stops cleanly; the record is kept, so --resume continues it.
+    limit_mb = memory_limit_mb
+    if limit_mb is None and os.environ.get(MEMORY_ENV):
+        try:
+            limit_mb = float(os.environ[MEMORY_ENV])
+        except ValueError:
+            limit_mb = None
+    if limit_mb is not None:
+        memory_limit = int(limit_mb * 1024 * 1024) if limit_mb > 0 else None
+    else:
+        total = _total_memory_bytes()
+        memory_limit = int(total * DEFAULT_MEMORY_FRACTION) if total else None
+    # resume: reuse the recorded points of an earlier run of the same problem (model content, vary,
+    # goals, fixed parameters and settings). They are cached, so they are not simulated again.
+    try:
+        model_sha = hashlib.sha256(Path(model_path).read_bytes()).hexdigest()
+    except OSError:
+        model_sha = None
+    signature = json.loads(json.dumps({
+        "model_id": module.MODEL["id"], "model_file": Path(model_path).name, "model_sha256": model_sha,
+        "vary": [{"key": v.key, "lo": v.lo, "hi": v.hi} for v in vary],
+        "goals": [asdict(g) for g in goals], "fixed": fixed, "engine": engine, "points": points,
+        "end_db": end_db, "farfield": bool(farfield), "excite": excite_spec,
+    }))
+    doc_path = opt_dir / f"{name}.json"
+    previous: dict | None = None
+    prior: list[dict] = []
+    if resume and doc_path.exists():
+        try:
+            candidate = json.loads(doc_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            candidate = None
+        if isinstance(candidate, dict) and candidate.get("evaluations"):
+            if candidate.get("signature") != signature:
+                raise ValueError(
+                    f"{name}: the recorded optimization was made with a different model, vary, goals or settings; "
+                    "start a new run instead of resuming it")
+            previous, prior = candidate, list(candidate["evaluations"])
+            best_prior = min(prior, key=lambda e: e.get("cost", PENALTY))
+            for v in vary:
+                if v.key in (best_prior.get("params") or {}):
+                    v.start = min(v.hi, max(v.lo, float(best_prior["params"][v.key])))
+            log(f"fairbeam: resume {name}: {len(prior)} recorded evaluations, continuing from "
+                + ", ".join(f"{v.key}={v.start:g}" for v in vary))
 
     def evaluate(point: dict) -> dict:
         overrides = {**fixed, **{k: repr(float(val)) if not isinstance(specs[k].default, int) else str(int(round(val)))
@@ -815,6 +984,8 @@ def run_optimization(model_path: str, vary: list[Vary], goals: list[Goal], *, fi
 
         def before_run(sim):
             nonlocal warned_legacy_nf2ff
+            if want_cp:
+                sim.cp_outputs = True
             if not want_ff and not sim.efficiency_points:
                 if not sim.remove_nf2ff_box():
                     # Older CSXCAD bindings can still skip the transform, but retain the dumps.
@@ -848,15 +1019,21 @@ def run_optimization(model_path: str, vary: list[Vary], goals: list[Goal], *, fi
         "method": method, "vary": [asdict(v) | {"unit": specs[v.key].unit} for v in vary],
         "goals": [asdict(g) | {"label": g.label()} for g in goals], "fixed": fixed,
         "engine": engine, "threads": threads, "max_evals": max_evals, "f0_tol_pct": f0_tol_pct,
-        "ports": port_numbers, "excite": drive,
+        "ports": port_numbers, "excite": drive, "signature": signature,
         "evaluations": [], "best": None, "start": None, "reason": "running", "finished": None,
     }
-    doc_path = opt_dir / f"{name}.json"
+    if previous:
+        doc["evaluations"] = prior
+        doc["created"] = previous.get("created", doc["created"])
+        doc["resume_count"] = int(previous.get("resume_count", 0)) + 1
+        doc["resumed"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     t_start = time.time()
     _emit("start", {"name": name, "file": f"optimizations/{name}.json", "vary": doc["vary"], "goals": doc["goals"],
-                    "max_evals": max_evals, "engine": engine, "ports": port_numbers, "excite": drive})
+                    "max_evals": max_evals, "engine": engine, "ports": port_numbers, "excite": drive,
+                    "resumed": bool(previous), "memory_limit_mb": round(memory_limit / 1e6) if memory_limit else None})
 
     def on_eval(e: dict):
+        gc.collect()  # openEMS/CSXCAD objects and allocator cycles are released before the next solve
         doc["evaluations"].append(e)
         best = min((x for x in doc["evaluations"] if not x.get('error')), key=lambda x: x["cost"], default=None)
         doc["best"], doc["start"] = best, doc["evaluations"][0]
@@ -872,12 +1049,18 @@ def run_optimization(model_path: str, vary: list[Vary], goals: list[Goal], *, fi
                 + ("  (goals met)" if e["met"] else ""))
         _emit("eval", {**e, "best_index": best["index"] if best else None,
                        "best_cost": best["cost"] if best else None, "max_evals": max_evals})
+        if memory_limit is not None:
+            rss = _process_rss_bytes()
+            if rss is not None and rss > memory_limit:
+                log(f"fairbeam: optimize memory {rss / 1e6:.0f} MB over the limit {memory_limit / 1e6:.0f} MB; "
+                    "stopping (the record is kept; --resume continues it)")
+                raise Stop("memory limit")
 
     base_start = {v.key: float(base[v.key]) for v in vary}
     try:
         result = optimize(vary, goals, evaluate, method=method, seed=seed, max_evals=max_evals,
                           start={k: min(v.hi, max(v.lo, base_start[k])) for k, v in zip(base_start, vary)},
-                          f0_tol_pct=f0_tol_pct, on_eval=on_eval)
+                          prior=prior or None, f0_tol_pct=f0_tol_pct, on_eval=on_eval)
     except BaseException as e:
         # never leave the document saying "running": record how it ended, then re-raise
         doc.update(reason=f"error: {type(e).__name__}: {e}" if isinstance(e, Exception) else "interrupted",
@@ -897,13 +1080,14 @@ def run_optimization(model_path: str, vary: list[Vary], goals: list[Goal], *, fi
 # ---------------------------------------------------------------------------- CLI
 
 def add_command(sub, defaults: dict):
-    p = sub.add_parser("optimize", help="tune bounded parameters towards goals (f0, S11, bandwidth, Dmax)")
+    p = sub.add_parser("optimize", help="tune bounded parameters towards goals (f0, S11, bandwidth, Dmax, axial ratio)")
     p.add_argument("model", help="path to a model .py file")
     p.add_argument("--vary", action="append", required=True, metavar="KEY=MIN:MAX[:START[:RES]]",
                    help="parameter to vary within bounds (repeat)")
     p.add_argument("--goal", action="append", required=True, metavar="GOAL",
-                   help="f0=<GHz> | s11_max=<dB>@<GHz> | bw_min=<MHz> | dmax_min=<dBi>@<GHz> | sij_max=<dB>@<GHz>:<i>,<j>"
-                        " | sij_min=<dB>@<GHz>:<i>,<j> | match_all=<dB>@<GHz>, optional *weight")
+                   help="f0=<GHz> | s11_max=<dB>@<GHz> | bw_min=<MHz> | dmax_min=<dBi>@<GHz>"
+                        " | ar_max=<dB>@<GHz> | rhcp_min=<dBi>@<GHz> | xpd_min=<dB>@<GHz>"
+                        " | sij_max=<dB>@<GHz>:<i>,<j> | sij_min=<dB>@<GHz>:<i>,<j> | match_all=<dB>@<GHz>, optional *weight")
     p.add_argument("--set", action="append", metavar="KEY=VALUE", help="fixed parameter override")
     p.add_argument("--method", choices=METHOD_CHOICES, default="auto")
     p.add_argument("--seed", type=int, default=0, help="random seed for stochastic methods (default 0)")
@@ -925,6 +1109,12 @@ def add_command(sub, defaults: dict):
     p.add_argument("--keep-sim", action="store_true",
                    help="keep each evaluation's raw openEMS folder (also FAIRBEAM_KEEP_SIM=1); "
                         "by default it is removed once the evaluation's bundle is written")
+    p.add_argument("--resume", action="store_true",
+                   help="continue a recorded run with the same model, vary, goals and settings instead of "
+                        "starting over; its evaluations are reused and count against --max-evals")
+    p.add_argument("--memory-limit", type=float, metavar="MB",
+                   help="stop the search cleanly once this process uses more than MB (default: 80 %% of physical RAM; "
+                        "FAIRBEAM_OPT_MEMORY_MB overrides; 0 disables). The record is kept, so --resume continues it")
     p.set_defaults(func=_cmd)
 
 
@@ -937,11 +1127,14 @@ def _cmd(args):
     goals = [parse_goal(t) for t in args.goal]
     if not 1 <= args.max_evals <= 200:
         raise ValueError("--max-evals: 1 to 200")
+    if args.memory_limit is not None and args.memory_limit < 0:
+        raise ValueError("--memory-limit: 0 (off) or a positive number of MB")
     doc = run_optimization(args.model, vary, goals, fixed=_overrides(args.set), name=args.name, out=Path(args.out),
                            sim_root=Path(args.sim_root), method=args.method, seed=args.seed, max_evals=args.max_evals,
                            threads=args.threads, engine=args.engine, end_db=args.end_db, points=args.points,
                            f0_tol_pct=args.f0_tol, farfield=True if args.farfield else None, excite=args.excite,
-                           keep_sim=True if args.keep_sim else None, check_candidates=not args.no_precheck)
+                           keep_sim=True if args.keep_sim else None, check_candidates=not args.no_precheck,
+                           resume=args.resume, memory_limit_mb=args.memory_limit)
     b = doc["best"]
     if b:
         print(f"fairbeam: best of {len(doc['evaluations'])} evaluations ({doc['reason']}, {doc['wall_time_s']} s): "

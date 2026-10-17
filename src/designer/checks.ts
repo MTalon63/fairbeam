@@ -655,6 +655,7 @@ export function designChecks(d: Design): Check[] {
       const v = ev(`far_field.frequencies[${k}]`, f);
       if (v !== null && band && !(band[0] - 1e-9 <= v && v <= band[1] + 1e-9)) error(`far_field.frequencies[${k}]`, "ff-band", `${g(v)} GHz is outside the simulated band ${g(band[0])}–${g(band[1])} GHz`);
     });
+    if (ff.cp_outputs !== undefined && typeof ff.cp_outputs !== "boolean") error("far_field.cp_outputs", "expr", "cp_outputs is true or false");
   }
   const eff = (d as Design & { monitors?: { efficiency?: { points?: unknown } } }).monitors?.efficiency;
   if (eff && typeof eff === "object" && !Array.isArray(eff)) {

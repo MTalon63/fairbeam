@@ -550,6 +550,8 @@ export default function SimSettingsDialog() {
               <Show when={d().far_field.enabled}>
                 <FreqList label={t("sim.mon.ffFreqs")} path="far_field.frequencies" value={d().far_field.frequencies ?? []} placeholder={t("sim.mon.ffFreqsEmpty")}
                   onChange={(v) => edit((x) => { x.far_field.frequencies = v; }, "fff")} />
+                <label class="dz-check"><input type="checkbox" checked={d().far_field.cp_outputs ?? false}
+                  onChange={(e) => { const c = e.currentTarget.checked; edit((x) => { x.far_field.cp_outputs = c ? true : undefined; }, "ff-cp"); }} /> {t("sim.mon.cpOutputs")}</label>
                 <label class="dz-check"><input type="checkbox" checked={d().far_field.phase_center !== undefined} onChange={(e) => edit((x) => { x.far_field.phase_center = e.currentTarget.checked ? [0, 0, 0] : undefined; }, "phase-center-toggle")} /> {t("sim.mon.phaseCentre")}</label>
                 <Show when={d().far_field.phase_center}><div class="dz-vec"><div class="dz-vec-row">
                   <For each={[0, 1, 2]}>{(k) => <ExprField label={["X", "Y", "Z"][k]} unit="mm" compact value={d().far_field.phase_center![k]} path={`far_field.phase_center[${k}]`} onChange={(v) => edit((x) => { const p = [...(x.far_field.phase_center ?? [0, 0, 0])] as [Expr, Expr, Expr]; p[k] = v; x.far_field.phase_center = p; }, `phase-center-${k}`)} />}</For>

@@ -10,7 +10,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  drivenPort, drivenPorts, effectiveQuantity, efficiencyData, efficiencySweeps, farfieldSummary, gridMax, interpAt, mismatchAt, mismatchCurve,
+  drivenPort, drivenPorts, effectiveQuantity, efficiencyData, efficiencySweeps, farfieldSummary, gridMax, interpAt, mismatchAt, mismatchCurve, polarizationSummary,
   quantityAvailability, quantityGrid, quantityMax, quantityOffsetDb, toDb,
 } from "../src/lib/farfieldQuantity.ts";
 import { resultDataTable } from "../src/designer/resultData.ts";
@@ -63,6 +63,10 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".json") && f !== "
     const ff = b.results.farfield[0];
     check(quantityAvailability(b, ff, "rhcp").ok && quantityGrid(b, ff, "rhcp") === ff.cp.rhcp_dbi, "RHCP draws the stored partial directivity");
     check(quantityMax(b, ff, "lhcp") === ff.dmax_dbi, "the circular parts share Dmax as their scale top");
+    const p = polarizationSummary(ff);
+    check(!!p && p.axialRatioDb === ff.cp.peak.axial_ratio_db && p.axialRatioBoresightDb === ff.cp.boresight.axial_ratio_db
+      && p.xpdDb === Math.abs(ff.cp.peak.rhcp_dbi - ff.cp.peak.lhcp_dbi) && p.sense === "rhcp" && p.kind === "circular",
+      "the polarization summary reads the stored peak/boresight axial ratio, XPD and sense");
   }
   if (file === "pyramidal-horn.json") {
     const ff = b.results.farfield[0];
@@ -102,6 +106,7 @@ const twoPort = (ff, extra) => { const b = base(ff, extra); b.results.ports["2"]
   near(farfieldSummary(b, ff).totalEff, 0.4375, 1e-12, "total efficiency");
   check(farfieldSummary(b, ff).gainDbi !== null && Math.abs(farfieldSummary(b, ff).gainDbi - (4 + toDb(0.5))) < 1e-12, "a bundle without gain_dbi: gain computed");
   check(!quantityAvailability(b, ff, "rhcp").ok && effectiveQuantity(b, ff, "rhcp") === "directivity", "no CP data: RHCP unavailable, directivity drawn");
+  check(polarizationSummary(ff) === null, "no CP data: no polarization summary");
   const p2 = twoPort({ port: 2 });
   near(mismatchAt(p2, 2.25e9, drivenPort(p2, p2.results.farfield[0])), 1 - 0.05, 1e-12, "a port-2 entry uses port 2's reflection");
   check(JSON.stringify(mismatchCurve(b, 1).eta) === JSON.stringify([0.75, 1, 0.75]), "the mismatch curve over the band");

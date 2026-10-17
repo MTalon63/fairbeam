@@ -31,6 +31,9 @@ Hedefler toplanarak birleştirilir. Ağırlık `*w` olarak yazılır; örneğin 
 | Uyum | `s11_max=<dB>@<GHz>` | frekanstaki \|S11\| | (aşım / 3 dB)² | \|S11\| ≤ hedef |
 | Bant genişliği | `bw_min=<MHz>` | f0 çevresindeki bandın (yoksa ilk bandın) −10 dB bant genişliği | (eksik oran / 10 %)² | ≥ hedef |
 | Yönlülük | `dmax_min=<dBi>@<GHz>` | frekanstaki Dmax (en yakın uzak alan örneği) | (eksik değer / 0,5 dB)² | ≥ hedef |
+| Eksenel oran | `ar_max=<dB>@<GHz>` | yönlülük tepesindeki eksenel oran (`cp.peak`) | (aşım / 0,5 dB)² | ≤ hedef |
+| RHCP yönlülüğü | `rhcp_min=<dBi>@<GHz>` | tepedeki RHCP kısmi yönlülük | (eksik değer / 0,5 dB)² | ≥ hedef |
+| Çapraz polarizasyon (XPD) | `xpd_min=<dB>@<GHz>` | tepedeki \|RHCP − LHCP\| | (eksik değer / 1 dB)² | ≥ hedef |
 | Yalıtım / kuplaj | `sij_max=<dB>@<GHz>:<i>,<j>` | frekanstaki \|S_ij\| (i alıcı, j uyarılan port) | (aşım / 3 dB)² | ≤ hedef |
 | İletim | `sij_min=<dB>@<GHz>:<i>,<j>` | frekanstaki \|S_ij\| | (eksik değer / 0,5 dB)² | ≥ hedef |
 | Tüm portlarda uyum | `match_all=<dB>@<GHz>` | tüm portların en kötü \|S_ii\| değeri | (aşım / 3 dB)² | ≤ hedef |
@@ -46,7 +49,7 @@ Tasarımda (`.design.json`) her aday, openEMS çalışmadan önce tasarım denet
 
 Atlanan aday, başarısız aday gibi değerlendirme sayılır. Kaydı `"skipped": "<reason>"` ve `skipped:` ile başlayan `error` taşır; günlük satırı ve değerlendirme tablosu nedeni belirtir (**Atlandı** durumu; örneğin “'patch', 'substrate' üzerinden 1,2 mm taşıyor (x+)”). Denetim hatasının maliyeti 10⁴'tür. Yanlış yerleşmiş metalin maliyeti 10⁴ artı her mm taşma veya boşluk için %10'dur (en fazla 10⁵); böylece bu noktalardan başlayan arama uygulanabilir bölgeye yönelir. Arama ardından devam eder. `--no-precheck` her adayı simüle eder. Python modelleri denetlenmez; taramalar her noktayı olduğu gibi çalıştırır.
 
-Yakın alandan uzak alana dönüşüm yalnızca Dmax hedefi gerektiriyorsa (veya `--farfield` ile) yapılır; bu her değerlendirmenin son işlem süresinin büyük kısmını azaltır.
+Yakın alandan uzak alana dönüşüm yalnızca bir Dmax veya polarizasyon hedefi gerektiriyorsa (veya `--farfield` ile) yapılır; bu her değerlendirmenin son işlem süresinin büyük kısmını azaltır. Polarizasyon hedefi (`ar_max`, `rhcp_min`, `xpd_min`) ayrıca `sim.cp_outputs` ayarını açar; antenin gerçekten ışıdığı dairesel polarizasyonu ölçer, bu yüzden doğrusal polarizasyonlu bir antenin tepesinde eksenel oran 60 dB olur.
 
 Her değerlendirmenin ham openEMS klasörü (`<sim-root>/optimizations/<name>/<slug>/`), paketi yazılır yazılmaz kaldırılır; korumak için `--keep-sim` kullanın (veya `FAIRBEAM_KEEP_SIM=1` ayarlayın).
 
@@ -73,7 +76,7 @@ Uygulama aynı kuralı izler. **Uyarılan portlar**, *Gerekenler* veya *Tümü* 
 
 ## Algoritmalar
 
-`--method` aramayı seçer (varsayılan `auto`); uygulamada aynı **Yöntem** listesi bulunur. `--seed` (varsayılan 0) rastlantısal yöntemlerin tohumudur; `--max-evals` (varsayılan 12; komut satırında 1–200, uygulamada en fazla 40) değerlendirme sınırını belirler.
+`--method` aramayı seçer (varsayılan `auto`); uygulamada aynı **Yöntem** listesi bulunur. `--seed` (varsayılan 0) rastlantısal yöntemlerin tohumudur; `--max-evals` (varsayılan 12; 1–200) değerlendirme sınırını belirler. Büyük bir bütçeye izin verilir; 40 değerlendirmenin üzerinde uygulama, her noktanın kendi sonuç paketini sakladığı ve çalıştırmanın saatler sürebileceği konusunda uyarır.
 
 - **secant**, yalnızca f0 hedefli tek parametrenin varsayılanıdır (`auto`).
   - İkinci nokta, rezonans uzunlukları için geçerli olan f0 ∝ 1/x ilişkisini varsayar.
@@ -90,6 +93,8 @@ Uygulama aynı kuralı izler. **Uyarılan portlar**, *Gerekenler* veya *Tümü* 
 - Her değerlendirme, `public/projects/optimizations/<name>/<model>--<k>-<v>.json` dosyasına paket olarak yazılır. Bu paketler ana sonuç dizinine girmez.
 - Çalışmanın kendisi `fairbeam.optimization/1` şemasıyla `public/projects/optimizations/<name>.json` dosyasına kaydedilir. Model, değişen parametreler, hedefler, sabit parametreler, motor, her değerlendirme (parametreler, ölçütler, hedef başına maliyet ve sağlanma bayrağı, paket dosyası, toplam süre), en iyi nokta, başlangıç noktası, durma nedeni ve toplam süreyi içerir.
 - Dosya her değerlendirmeden sonra yeniden yazılır; böylece iptal edilen çalışma geçmişini korur.
+- `--resume` ile kaydedilmiş bir çalışma sürdürülür: aynı model, değişkenler, hedefler ve sabit parametreler için kaydedilmiş değerlendirmeler yeniden simüle edilmez, yeniden kullanılır ve `--max-evals` bütçesinden sayılır; daha fazla çalıştırmak için bütçeyi yükseltin. Farklı ayarlarla yapılmış bir kaydın üzerine yazılmaz (çalışma bir iletiyle durur). Uygulamada **Önceki çalışmayı sürdür**, geçerli model ve değişken aralığı için en yeni eşleşen kaydı seçer.
+- Bu sürecin belleği bir sınırı aşınca arama temiz biçimde durur (varsayılan: fiziksel RAM'in %80'i; `--memory-limit MB` veya `FAIRBEAM_OPT_MEMORY_MB` değiştirir, `0` kapatır). Durma nedeni `memory limit` olarak bildirilir, kayıt korunur ve `--resume` kaldığı yerden sürdürür. Her değerlendirmeden sonra bir `gc.collect()` çalışır; böylece çözücünün belleği bir sonraki çözümden önce serbest bırakılır.
 - İlerleme stdout'a `fairbeam: optimize start|eval|done {json}` satırları olarak gider. Çalıştırma sunucusu (`POST /api/optimizations`) bunları canlı olaylara dönüştürür.
 
 ## Gösterim (GPU motoru)

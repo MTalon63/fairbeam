@@ -174,12 +174,15 @@ export function resultDataTable(bundle: Bundle | null | undefined, view: ResultV
     // the shown quantity (gain, realized gain, a circular part) beside the directivity
     const q = options.patternQuantity ? effectiveQuantity(bundle, ff, options.patternQuantity) : "directivity";
     const extra = q === "directivity" ? null : quantityGrid(bundle, ff, q);
+    // the axial ratio is independent of the shown quantity: carry it beside the pattern whenever the
+    // far field has circular-polarisation data, as the pattern CSV export does (export/csv.ts)
+    const ar = ff.cp ? ff.cp.axial_ratio_db : null;
     const rows: (string | number | null)[][] = [];
     ff.theta.forEach((theta, i) => ff.phi.forEach((phi, j) => {
       const value = ff.directivity_dbi?.[i]?.[j];
-      rows.push([...(withPort ? [ff.port ?? null] : []), ff.f / 1e9, theta, phi, finiteCell(value), ...(extra ? [finiteCell(extra[i]?.[j])] : [])]);
+      rows.push([...(withPort ? [ff.port ?? null] : []), ff.f / 1e9, theta, phi, finiteCell(value), ...(extra ? [finiteCell(extra[i]?.[j])] : []), ...(ar ? [finiteCell(ar[i]?.[j])] : [])]);
     }));
-    return { header: [...(withPort ? ["Port"] : []), "f (GHz)", "theta (deg)", "phi (deg)", "Directivity (dBi)", ...(extra ? [`${tEn(`farfield.quantity.${q}`)} (dBi)`] : [])], rows };
+    return { header: [...(withPort ? ["Port"] : []), "f (GHz)", "theta (deg)", "phi (deg)", "Directivity (dBi)", ...(extra ? [`${tEn(`farfield.quantity.${q}`)} (dBi)`] : []), ...(ar ? ["Axial ratio (dB)"] : [])], rows };
   }
   if (view === "efficiency") {
     // every frequency of the band, the far-field frequencies and the band-wide efficiency (sorted):

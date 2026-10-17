@@ -195,7 +195,7 @@ export interface Design {
     /** "sheet" (default): metal bricks much thinner than the mesh are built as zero-thickness sheets */
     thin_metal?: "sheet" | "volume";
   };
-  far_field: { enabled: boolean; frequencies?: Expr[]; phase_center?: [Expr, Expr, Expr]; /** which NF2FF box faces record (x-, x+, y-, y+, z-, z+); omitted: all */ faces?: boolean[] };
+  far_field: { enabled: boolean; frequencies?: Expr[]; phase_center?: [Expr, Expr, Expr]; /** which NF2FF box faces record (x-, x+, y-, y+, z-, z+); omitted: all */ faces?: boolean[]; /** add RHCP/LHCP partial directivities and axial ratio to every far-field entry (bundle field "cp") */ cp_outputs?: boolean };
   parameter_sweep?: ParameterSweepDefinition;
   /** The opening view: where the 3D view's camera is and the point it looks at when the design opens (mm).
    * Drawing only; absent: the isometric view fitted to the model. */

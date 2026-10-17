@@ -31,6 +31,9 @@ Goals combine additively. A weight is written `*w`, for example `s11_max=-25@2.4
 | Match | `s11_max=<dB>@<GHz>` | \|S11\| at the frequency | (excess / 3 dB)² | \|S11\| ≤ target |
 | Bandwidth | `bw_min=<MHz>` | −10 dB bandwidth of the band around f0 (else the first band) | (shortfall / 10 %)² | ≥ target |
 | Directivity | `dmax_min=<dBi>@<GHz>` | Dmax at the frequency (nearest far-field sample) | (shortfall / 0.5 dB)² | ≥ target |
+| Axial ratio | `ar_max=<dB>@<GHz>` | axial ratio at the directivity peak (`cp.peak`) | (excess / 0.5 dB)² | ≤ target |
+| RHCP directivity | `rhcp_min=<dBi>@<GHz>` | RHCP partial directivity at the peak | (shortfall / 0.5 dB)² | ≥ target |
+| Cross-pol (XPD) | `xpd_min=<dB>@<GHz>` | \|RHCP − LHCP\| at the peak | (shortfall / 1 dB)² | ≥ target |
 | Isolation / coupling | `sij_max=<dB>@<GHz>:<i>,<j>` | \|S_ij\| at the frequency (port i receiving, port j driven) | (excess / 3 dB)² | ≤ target |
 | Transmission | `sij_min=<dB>@<GHz>:<i>,<j>` | \|S_ij\| at the frequency | (shortfall / 0.5 dB)² | ≥ target |
 | Match all ports | `match_all=<dB>@<GHz>` | the worst \|S_ii\| over all ports | (excess / 3 dB)² | ≤ target |
@@ -46,7 +49,7 @@ For a design (`.design.json`), every candidate goes through the design checks ([
 
 A skipped candidate counts as an evaluation, like a failed one. Its entry carries `"skipped": "<reason>"` and an `error` starting with `skipped:`, the log line and the evaluations table say why (Status **Skipped**, for example "'patch' overhangs 'substrate' by 1.2 mm (x+)"), and it costs 10⁴ for a check error. Misplaced metal costs 10⁴ plus 10 % per mm of overhang or gap (at most 10⁵), so a search that starts among such points is led back to feasible ones. The search then goes on. `--no-precheck` simulates every candidate. Python models are not checked, and sweeps run every point as it is.
 
-The near-to-far-field transform runs only when a Dmax goal needs it (or with `--farfield`), which saves most of the post-processing time of each evaluation.
+The near-to-far-field transform runs only when a Dmax or polarization goal needs it (or with `--farfield`), which saves most of the post-processing time of each evaluation. A polarization goal (`ar_max`, `rhcp_min`, `xpd_min`) also switches `sim.cp_outputs` on; it measures the circular polarization the antenna actually radiates, so a linearly polarized antenna has an axial ratio of 60 dB at its peak.
 
 Each evaluation's raw openEMS folder (`<sim-root>/optimizations/<name>/<slug>/`) is removed as soon as its bundle is written; pass `--keep-sim` (or set `FAIRBEAM_KEEP_SIM=1`) to keep them.
 
@@ -73,7 +76,7 @@ The app mirrors this rule. **Driven ports** offers *Needed* or *All*, and the pa
 
 ## Algorithms
 
-`--method` chooses the search (`auto` is the default); the app has the same **Method** list. `--seed` (default 0) seeds the stochastic methods and `--max-evals` (default 12; 1 to 200 on the command line, up to 40 in the app) sets the budget.
+`--method` chooses the search (`auto` is the default); the app has the same **Method** list. `--seed` (default 0) seeds the stochastic methods and `--max-evals` (default 12; 1 to 200) sets the budget. A large budget is allowed; above 40 evaluations the app warns that every point keeps its own result bundle and the run can take hours.
 
 - **secant** is the default (`auto`) for one parameter with an f0 goal only.
   - The second point assumes f0 ∝ 1/x, which holds for resonant lengths.
@@ -90,6 +93,8 @@ The app mirrors this rule. **Driven ports** offers *Needed* or *All*, and the pa
 - Every evaluation is written as a bundle to `public/projects/optimizations/<name>/<model>--<k>-<v>.json`. These bundles stay out of the main project index.
 - The run itself is recorded in `public/projects/optimizations/<name>.json`, schema `fairbeam.optimization/1`. It contains the model, varied parameters, goals, fixed parameters, engine, every evaluation (parameters, metrics, per-goal cost and met flag, bundle file, wall time), the best point, the start point, the stop reason and the total wall time.
 - The file is rewritten after every evaluation, so a canceled run keeps its history.
+- Pass `--resume` to continue a recorded run: the evaluations already recorded for the same model, vary, goals and fixed parameters are reused instead of simulated again, and they count against `--max-evals`, so raise the budget to run more. A record made with different settings is not overwritten (the run stops with a message). In the app, **Continue the previous run** picks the newest matching record for the current model and vary range.
+- The search stops cleanly when this process's memory exceeds a limit (default 80 % of physical RAM; `--memory-limit MB` or `FAIRBEAM_OPT_MEMORY_MB` overrides it, `0` disables it). It reports `memory limit` as the stop reason, keeps the record, and `--resume` continues it. A `gc.collect()` runs after every evaluation so the solver's memory is released before the next solve.
 - Progress goes to stdout as `fairbeam: optimize start|eval|done {json}` lines. The run server (`POST /api/optimizations`) turns these into live events.
 
 ## Demonstration (GPU engine)

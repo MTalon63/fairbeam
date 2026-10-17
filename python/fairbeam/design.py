@@ -24,7 +24,8 @@ The geometry maps one to one onto CSXCAD primitives, the same ones Python models
                  "start": [...], "stop": [...], "direction": "z"}],
       "resistors": [{"name": "r1", "R": "100", "start": [...], "stop": [...], "direction": "y"}],
       "mesh": {"mode": "auto", "cells_per_wavelength": 20, "refine_features": false},
-      "far_field": {"enabled": true, "frequencies": ["f0"]},   # optional "faces": 6 flags x- x+ y- y+ z- z+
+      "far_field": {"enabled": true, "frequencies": ["f0"]},   # optional "faces": 6 flags x- x+ y- y+ z- z+;
+                                                               # "cp_outputs": true adds RHCP/LHCP directivity and axial ratio
       "monitors": {"currents": ["f0"],              # optional: surface-current maps (GHz)
                    "efficiency": {"points": 21},     # optional: radiation efficiency over the band
                    "field_planes": [{"quantity": "E", "normal": "z", "position": "h + 1",
@@ -3075,6 +3076,8 @@ def build(d: dict, values: dict):
             sim.add_nf2ff_box(**skip)
         if ff.get("frequencies"):
             sim.pattern_freqs = [num(f, f"far_field.frequencies[{k}]") * 1e9 for k, f in enumerate(ff["frequencies"])]
+        if ff.get("cp_outputs"):
+            sim.cp_outputs = True
     cur = (d.get("monitors") or {}).get("currents") or []
     if cur:  # fairbeam run records surface currents at these frequencies (cli._field_request)
         sim.current_freqs = [num(f, f"monitors.currents[{k}]") * 1e9 for k, f in enumerate(cur)]
@@ -3713,6 +3716,8 @@ def to_python(d: dict) -> str:
         out.append(f"    sim.add_nf2ff_box({', '.join(args)})")
         if ff.get("frequencies"):
             out.append("    sim.pattern_freqs = [" + ", ".join(f"({e(f)}) * 1e9" for f in ff["frequencies"]) + "]")
+        if ff.get("cp_outputs"):
+            out.append("    sim.cp_outputs = True")
     cur = (d.get("monitors") or {}).get("currents") or []
     if cur:
         out.append("    sim.current_freqs = [" + ", ".join(f"({e(f)}) * 1e9" for f in cur) + "]  # surface-current maps")

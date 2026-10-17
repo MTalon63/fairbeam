@@ -10,7 +10,7 @@ import { radioGroupKeys } from "../lib/a11y";
 import { ghzText, num, withUnit } from "../lib/format";
 import { efficiencyIssue, efficiencyWarningUi } from "../lib/runText";
 import {
-  effectiveQuantity, farfieldSummary, PATTERN_QUANTITIES, QUANTITY_LABEL, quantityAvailability, quantityMax, toDb, type PatternQuantity,
+  effectiveQuantity, farfieldSummary, PATTERN_QUANTITIES, polarizationLabel, polarizationSummary, QUANTITY_LABEL, quantityAvailability, quantityMax, toDb, type PatternQuantity,
 } from "../lib/farfieldQuantity";
 import { patternQuantity, setPatternQuantity } from "../lib/patternQuantityStore";
 import { PATTERN_RANGE_DB } from "../scene/patternRange";
@@ -132,6 +132,18 @@ export default function FarfieldCard(props: { bundle: Bundle; ff: FarField; entr
           </dd>
           </Show>
           <dt title={t("farfield.lobeTitle")}>{t("farfield.mainLobe")}</dt><dd class="mono">{lobeText(s().peak)}</dd>
+          <Show when={polarizationSummary(props.ff)}>{(p) => (
+            <>
+              <dt title={t("farfield.polarizationTitle")}>{t("farfield.polarization")}</dt>
+              <dd class="mono">{polarizationLabel(p())}</dd>
+              <dt title={t("farfield.axialRatioTitle")}>{t("farfield.axialRatio")}</dt>
+              <dd class="mono">{withUnit(num(p().axialRatioDb, 2), "dB")}</dd>
+              <dt title={t("farfield.rhcpLhcpTitle")}>{t("farfield.rhcpLhcp")}</dt>
+              <dd class="mono">{`${num(p().rhcpDbi, 2)} / ${minus(num(p().lhcpDbi, 2))} dBi`}</dd>
+              <dt title={t("farfield.xpdTitle")}>{t("farfield.xpd")}</dt>
+              <dd class="mono">{withUnit(num(p().xpdDb, 2), "dB")}</dd>
+            </>
+          )}</Show>
           <Show when={!props.arrayPattern && multiPort() && s().port != null}><dt>{t("farfield.drivenPort")}</dt><dd class="mono">P{s().port}</dd></Show>
         </dl>
       </Show>

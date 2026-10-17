@@ -18,6 +18,7 @@ const statusOf = (e: Evaluation) => (e.skipped ? "opt.status.skipped" : e.error 
 /** The optimizer's stop reasons (python/fairbeam/optimize.py) as i18n keys; others are shown as sent. */
 const REASONS: Record<string, string> = {
   "max evaluations": "opt.reason.maxEvals",
+  "memory limit": "opt.reason.memoryLimit",
   "simplex converged": "opt.reason.simplexConverged",
   "evaluation budget exhausted": "opt.reason.budgetExhausted",
   "trust region converged": "opt.reason.trustRegionConverged",
@@ -179,7 +180,7 @@ export default function OptimizeProgress() {
               {/* Show every objective, including bandwidth and directivity, for the best point. */}
               {(spec()?.goals ?? []).map((g, i) => {
                 const value = best()!.goals?.[i]?.value ?? (best()!.metrics ? goalValue(g, best()!.metrics) : null);
-                const unit = g.kind === "f0" ? "GHz" : g.kind === "bw_min" ? "MHz" : g.kind === "dmax_min" ? "dBi" : "dB";
+                const unit = g.kind === "f0" ? "GHz" : g.kind === "bw_min" ? "MHz" : g.kind === "dmax_min" || g.kind === "rhcp_min" ? "dBi" : "dB";
                 return ` · ${goalText(g)}: ${num(value, 3)} ${unit}`;
               }).join("")}
               {" "}· {t("opt.progress.evaluationN", { n: best()!.index })}

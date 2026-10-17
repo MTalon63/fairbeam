@@ -112,7 +112,7 @@ MAX_LEGACY_SWEEP_RUNS = 25
 MAX_SWEEP_PARAMS = 2
 MAX_SEQUENCE_AXES = 6
 MAX_SEQUENCES = 100
-MAX_OPT_EVALS = 40
+MAX_OPT_EVALS = 200  # same ceiling as the CLI (fairbeam.optimize); a large budget is a time/disk cost, warned about in the app
 KEY_RE = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
@@ -1610,6 +1610,26 @@ class App:
             raise ApiError(404, f"no convergence study {study_id}")
         return study
 
+    def _resume_name(self, model_id: str, vary: list[dict]) -> str | None:
+        """The newest recorded optimization of the same model and vary bounds, for a resume."""
+        directory = self.projects_dir / "optimizations"
+        want = [(v["key"], float(v["min"]), float(v["max"])) for v in vary]
+        best: tuple[str, str] | None = None
+        for path in directory.glob("*.json") if directory.is_dir() else []:
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(doc, dict) or (doc.get("model") or {}).get("id") != model_id:
+                continue
+            got = [(v.get("key"), v.get("lo"), v.get("hi")) for v in (doc.get("vary") or [])]
+            if got != want:
+                continue
+            created = str(doc.get("created") or "")
+            if best is None or created > best[0]:
+                best = (created, path.stem)
+        return best[1] if best else None
+
     def submit_optimization(self, body: dict) -> dict:
         from .optimize import GOAL_KINDS, make_goal
 
@@ -1672,6 +1692,9 @@ class App:
         excite = body.get("excite", "auto")
         if not isinstance(excite, str) or not re.fullmatch(r"auto|all|\d+(,\d+)*", excite):
             errors["excite"] = "auto, all or port numbers such as 1,3"
+        resume = body.get("resume", False)
+        if not isinstance(resume, bool):
+            errors["resume"] = "true or false"
         method = body.get("method", "auto")
         methods = ("auto", "secant", "nelder-mead", "bayesian", "cma-es", "particle-swarm", "genetic", "trust-region")
         if not isinstance(method, str) or method not in methods:
@@ -1684,15 +1707,18 @@ class App:
         # fixed parameters: everything the user changed except the varied ones
         fixed = {k: v for k, v in overrides.items() if k not in {c["key"] for c in clean_vary}}
         model_id = (m.get("model") or {}).get("id") or m["key"]
-        name = st["name"] or slugify(f"{model_id}-opt-" + time.strftime("%Y%m%d-%H%M%S"))
-        if (self.projects_dir / "optimizations" / f"{name}.json").exists():
+        name = st["name"]
+        if not name and resume:  # continue the newest recorded run of this model and vary range
+            name = self._resume_name(model_id, clean_vary)
+        name = name or slugify(f"{model_id}-opt-" + time.strftime("%Y%m%d-%H%M%S"))
+        if not resume and (self.projects_dir / "optimizations" / f"{name}.json").exists():
             name = slugify(f"{name}-" + time.strftime("%H%M%S"))
         label = st["label"] or "Optimize " + ", ".join(c["key"] for c in clean_vary)
         job = self.manager.submit(model=m["key"], model_id=model_id, model_path=m["path"], design_input=m.get("_queued_design"), params=resolved,
                                   overrides=fixed, threads=st["threads"], engine=st["engine"],
                                   end_criteria_db=st["end_criteria_db"], name=name, label=label, kind="optimize",
                                   optimize={"vary": clean_vary, "goals": clean_goals, "max_evals": max_evals,
-                                            "method": method, "excite": excite})
+                                            "method": method, "excite": excite, "resume": resume})
         return job.to_dict()
 
     def research_probe(self, body: dict) -> dict:

@@ -81,6 +81,47 @@ export function mismatchAt(b: Bundle, fHz: number, port: number | null): number 
 export const radEfficiency = (ff: FarField): number | null =>
   typeof ff.rad_efficiency === "number" && Number.isFinite(ff.rad_efficiency) && ff.rad_efficiency > 0 ? ff.rad_efficiency : null;
 
+export type PolarizationSense = "rhcp" | "lhcp";
+export interface PolarizationSummary {
+  /** partial directivities at the directivity peak, dBi */
+  rhcpDbi: number;
+  lhcpDbi: number;
+  /** cross-polarization discrimination |RHCP − LHCP| at the peak, dB */
+  xpdDb: number;
+  /** axial ratio at the directivity peak and at θ = 0 (boresight), dB */
+  axialRatioDb: number;
+  axialRatioBoresightDb: number;
+  /** the stronger circular component at the peak */
+  sense: PolarizationSense;
+  /** axial-ratio class at the peak: circular (≤ 3 dB), elliptical, linear (> 15 dB) */
+  kind: "circular" | "elliptical" | "linear";
+}
+
+/** The circular polarisation at the directivity peak, or null when the bundle carries no
+ * circular-polarisation data (a model with `sim.cp_outputs`, docs/BUNDLE.md `cp`). */
+export function polarizationSummary(ff: FarField): PolarizationSummary | null {
+  const cp = ff.cp;
+  if (!cp) return null;
+  const { peak, boresight } = cp;
+  return {
+    rhcpDbi: peak.rhcp_dbi,
+    lhcpDbi: peak.lhcp_dbi,
+    xpdDb: Math.abs(peak.rhcp_dbi - peak.lhcp_dbi),
+    axialRatioDb: peak.axial_ratio_db,
+    axialRatioBoresightDb: boresight.axial_ratio_db,
+    sense: peak.rhcp_dbi >= peak.lhcp_dbi ? "rhcp" : "lhcp",
+    kind: peak.axial_ratio_db <= 3 ? "circular" : peak.axial_ratio_db > 15 ? "linear" : "elliptical",
+  };
+}
+
+/** The polarization class in the UI language ("RHCP", "LHCP", "Elliptical (RH)", "Linear"). */
+export function polarizationLabel(p: PolarizationSummary): string {
+  if (p.kind === "linear") return t("farfield.polarization.linear");
+  if (p.kind === "circular") return t(p.sense === "rhcp" ? "farfield.polarization.rhcp" : "farfield.polarization.lhcp");
+  const sense = t(p.sense === "rhcp" ? "farfield.polarization.rh" : "farfield.polarization.lh");
+  return t("farfield.polarization.elliptical", { sense });
+}
+
 export interface Availability { ok: boolean; reason: string }
 
 /** Whether a quantity can be drawn for a far-field entry, and why not. */

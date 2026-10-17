@@ -671,6 +671,8 @@ class _Lint:
                 if v is not None and band and not band[0] - 1e-9 <= v <= band[1] + 1e-9:
                     self.error(f"far_field.frequencies[{k}]", "ff-band",
                                f"{v:g} GHz is outside the simulated band {band[0]:g}–{band[1]:g} GHz")
+            if "cp_outputs" in ff and not isinstance(ff["cp_outputs"], bool):
+                self.error("far_field.cp_outputs", "expr", "cp_outputs is true or false")
         for k, f in enumerate((self.d.get("monitors") or {}).get("currents") or []):
             v = self.ev(f"monitors.currents[{k}]", f)
             if v is not None and band and not band[0] - 1e-9 <= v <= band[1] + 1e-9:
