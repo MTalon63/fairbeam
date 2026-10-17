@@ -80,6 +80,27 @@ class OptimizerNF2FFChoices(unittest.TestCase):
     def test_model_efficiency_monitor_is_preserved(self):
         self.assertEqual(self.run_case(efficiency=21)[0], (True, 0))
 
+    def test_polarization_goal_records_the_farfield_and_switches_cp_on(self):
+        self.assertEqual(self.run_case("ar_max=3@2.5", farfield=False)[0], (True, 0))
+        captured = []
+
+        def fake_run(_module, _values, *, before_run, **_kwargs):
+            sim = FakeSimulation()
+            before_run(sim)
+            captured.append(getattr(sim, "cp_outputs", False))
+            return sim
+
+        FakeSimulation.to_bundle = lambda self, *a, **k: {}  # noqa: ARG005
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch("fairbeam.model.load_model", return_value=FakeModel), \
+                    mock.patch("fairbeam.multiport.run_model", fake_run), \
+                    mock.patch("fairbeam.optimize.bundle_metrics", return_value={"ar_at": {"2.5": 1.0}}):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    run_optimization("fake_model.py", [parse_vary("x=0:1:0.5:1")], [parse_goal("ar_max=3@2.5")],
+                                     out=root / "out", sim_root=root / "sim", max_evals=1, keep_sim=True, log=lambda *a: None)
+        self.assertEqual(captured, [True])
+
     def test_legacy_binding_falls_back_to_reference_only_behavior(self):
         seen, messages = self.run_case(can_remove=False)
         self.assertEqual(seen, (False, 1))

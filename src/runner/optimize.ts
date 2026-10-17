@@ -74,6 +74,9 @@ export const GOAL_PRESETS: GoalPreset[] = [
   { kind: "dmax_min", label: "opt.goal.dmaxMin", unit: "dBi", needsAt: true, hint: "opt.goal.dmaxMin.hint" },
   { kind: "realized_gain_min", label: "opt.goal.realizedGain", unit: "dBi", needsAt: true, hint: "opt.goal.radiation.hint" },
   { kind: "efficiency_min", label: "opt.goal.efficiency", unit: "%", needsAt: true, hint: "opt.goal.radiation.hint" },
+  { kind: "ar_max", label: "opt.goal.arMax", unit: "dB", needsAt: true, hint: "opt.goal.arMax.hint" },
+  { kind: "rhcp_min", label: "opt.goal.rhcpMin", unit: "dBi", needsAt: true, hint: "opt.goal.rhcpMin.hint" },
+  { kind: "xpd_min", label: "opt.goal.xpdMin", unit: "dB", needsAt: true, hint: "opt.goal.xpdMin.hint" },
   { kind: "match_all", label: "opt.goal.matchAll", unit: "dB", needsAt: true, band: true, multi: true, hint: "opt.goal.matchAll.hint" },
   { kind: "sij_max", label: "opt.goal.sijMax", unit: "dB", needsAt: true, band: true, pair: true, multi: true, hint: "opt.goal.sijMax.hint" },
   { kind: "sij_min", label: "opt.goal.sijMin", unit: "dB", needsAt: true, band: true, pair: true, multi: true, hint: "opt.goal.sijMin.hint" },
@@ -96,7 +99,7 @@ export const modelPorts = createRoot(() =>
 /** Default draft of a goal kind at frequency f (GHz, as typed). */
 export function goalDraft(kind: GoalKind, f: string, weight = "1"): GoalDraft {
   const n = modelPorts()?.length ?? 3;
-  const target = { f0: f, s11_max: "-20", bw_min: "100", dmax_min: "5", realized_gain_min: "5", efficiency_min: "90", match_all: "-20", sij_max: "-25", sij_min: "-3.5" }[kind];
+  const target = { f0: f, s11_max: "-20", bw_min: "100", dmax_min: "5", ar_max: "3", rhcp_min: "3", xpd_min: "15", realized_gain_min: "5", efficiency_min: "90", match_all: "-20", sij_max: "-25", sij_min: "-3.5" }[kind];
   const [i, j] = kind === "sij_max" ? (n >= 3 ? ["2", "3"] : ["2", "1"]) : kind === "sij_min" ? ["2", "1"] : ["", ""];
   return { kind, target, at: presetOf(kind).needsAt ? f : "", atHi: "", atHiInvalid: false, weight, i, j };
 }
@@ -104,6 +107,8 @@ export function goalDraft(kind: GoalKind, f: string, weight = "1"): GoalDraft {
 export const [vary, setVary] = createStore<VaryDraft[]>([]);
 export const [goals, setGoals] = createStore<GoalDraft[]>([]);
 export const [maxEvals, setMaxEvals] = createSignal(12);
+/** Continue the newest recorded optimization of this model and vary range (server picks it). */
+export const [optResume, setOptResume] = createSignal(false);
 export type OptimizeMethod = "auto" | "secant" | "nelder-mead" | "bayesian" | "cma-es" | "particle-swarm" | "genetic" | "trust-region";
 export const [method, setMethod] = createSignal<OptimizeMethod>("auto");
 export const [optEngine, setOptEngine] = createSignal<string>("");
@@ -235,6 +240,7 @@ export function ensureOptimizeForm() {
     formModel = m;
     setGoals(reconcile([]));
     setExcite("auto");
+    setOptResume(false);
   }
   if (!goals.length) addGoal(firstGoal());
   const engines = health()?.engines ?? ["cpu"];
@@ -273,7 +279,7 @@ export function optimizerPlan(state: OptimizationSettings) {
       const target = Number(g.target);
       const preset = presetOf(g.kind);
       if (!g.target.trim() || !Number.isFinite(target)) errors[`goals.${i}`] = t("opt.err.targetNumber");
-      else if ((g.kind === "f0" || g.kind === "bw_min") && target <= 0) errors[`goals.${i}`] = t("opt.err.targetPositive");
+      else if ((g.kind === "f0" || g.kind === "bw_min" || g.kind === "ar_max" || g.kind === "xpd_min") && target <= 0) errors[`goals.${i}`] = t("opt.err.targetPositive");
       else if ((g.kind === "s11_max" || g.kind === "sij_max" || g.kind === "match_all") && target >= 0) errors[`goals.${i}`] = t("opt.err.negativeDb");
       else if (g.kind === "sij_min" && target > 0) errors[`goals.${i}`] = t("opt.err.atMostZeroDb");
       else if (g.kind === "efficiency_min" && !(target > 0 && target <= 100)) errors[`goals.${i}`] = t("opt.err.efficiency");
@@ -355,6 +361,7 @@ export async function startOptimize() {
       max_evals: maxEvals(),
       method: method(),
       excite: excite(),
+      resume: optResume(),
     });
     setNotice(null);
     attach(job);
@@ -430,6 +437,9 @@ export function goalValue(g: OptGoal, m: OptEval["metrics"]): number | null {
   if (g.at_hi != null) return null; // old point metrics cannot answer a band goal
   if (g.kind === "s11_max") return m.s11_at?.[fmtG(g.at)] ?? null;
   if (g.kind === "match_all") return m.match_all_at?.[fmtG(g.at)]?.max ?? null;
+  if (g.kind === "ar_max") return m.ar_at?.[fmtG(g.at)] ?? null;
+  if (g.kind === "rhcp_min") return m.rhcp_at?.[fmtG(g.at)] ?? null;
+  if (g.kind === "xpd_min") return m.xpd_at?.[fmtG(g.at)] ?? null;
   if ((g.kind === "sij_max" || g.kind === "sij_min") && g.ports) return m.sij_at?.[`${g.ports[0]},${g.ports[1]}@${fmtG(g.at)}`] ?? null;
   return null;
 }

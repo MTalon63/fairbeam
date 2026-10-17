@@ -47,7 +47,11 @@ class Parsing(unittest.TestCase):
         g = parse_goal("s11_max=-25@2.45*2")
         self.assertEqual((g.kind, g.target, g.at, g.weight), ("s11_max", -25.0, 2.45, 2.0))
         self.assertEqual(parse_goal("dmax_min=5@2.4").at, 2.4)
-        for bad in ("f0", "gain=3", "s11_max=-25", "s11_max=3@2", "bw_min=-5", "f0=2*0"):
+        self.assertEqual(parse_goal("ar_max=3@2.4").kind, "ar_max")
+        self.assertEqual(parse_goal("rhcp_min=5@2.4").at, 2.4)
+        self.assertEqual(parse_goal("xpd_min=15@2.4").kind, "xpd_min")
+        for bad in ("f0", "gain=3", "s11_max=-25", "s11_max=3@2", "bw_min=-5", "f0=2*0",
+                    "ar_max=3", "ar_max=-1@2.4", "xpd_min=0@2.4"):
             with self.assertRaises(ValueError, msg=bad):
                 parse_goal(bad)
 
@@ -77,6 +81,12 @@ class Parsing(unittest.TestCase):
         self.assertAlmostEqual(c, 1.0)
         c, met, _ = goal_cost(make_goal("dmax_min", 2.1, 2.4), m)
         self.assertAlmostEqual(c, (0.1 / 0.5) ** 2)
+        mcp = {"ar_at": {"2.4": 5.0}, "rhcp_at": {"2.4": 2.0}, "xpd_at": {"2.4": 12.0}}
+        self.assertAlmostEqual(goal_cost(make_goal("ar_max", 3, 2.4), mcp)[0], (2 / 0.5) ** 2)
+        self.assertAlmostEqual(goal_cost(make_goal("rhcp_min", 3, 2.4), mcp)[0], (1 / 0.5) ** 2)
+        self.assertAlmostEqual(goal_cost(make_goal("xpd_min", 15, 2.4), mcp)[0], (3 / 1.0) ** 2)
+        self.assertTrue(goal_cost(make_goal("ar_max", 6, 2.4), mcp)[1])
+        self.assertGreaterEqual(goal_cost(make_goal("ar_max", 3, 2.4), {})[0], 1e4)
         c, met, _ = goal_cost(make_goal("f0", 2.4), {"f0_ghz": None})
         self.assertGreaterEqual(c, 1e4)
         total, parts, all_met = total_cost([make_goal("f0", 2.4), make_goal("bw_min", 100, weight=2)], m)
@@ -201,6 +211,105 @@ class Metrics(unittest.TestCase):
         self.assertIn("2.3", m["s11_at"])
         self.assertLess(m["s11_f0_db"], -10)
         self.assertIn("2.25", m["dmax_at"])
+
+    def test_polarization_from_a_cp_bundle(self):
+        bundle = json.loads((REPO / "public" / "projects" / "helix-axial.json").read_text(encoding="utf-8"))
+        ff = bundle["results"]["farfield"][0]
+        peak = ff["cp"]["peak"]
+        at = ff["f"] / 1e9
+        m = bundle_metrics(bundle, [make_goal("ar_max", 3, at), make_goal("rhcp_min", 5, at), make_goal("xpd_min", 15, at)])
+        key = f"{at:g}"
+        self.assertAlmostEqual(m["ar_at"][key], peak["axial_ratio_db"])
+        self.assertAlmostEqual(m["rhcp_at"][key], peak["rhcp_dbi"])
+        self.assertAlmostEqual(m["xpd_at"][key], abs(peak["rhcp_dbi"] - peak["lhcp_dbi"]))
+
+
+class Resume(unittest.TestCase):
+    """--resume seeds the search with the recorded evaluations of the same run: they come from the
+    cache instead of being simulated again, and a record with a different signature is refused."""
+
+    def test_resume_reuses_recorded_points_and_refuses_a_mismatch(self):
+        import fairbeam.multiport as multiport
+        import fairbeam.optimize as opt
+        from fairbeam.design import blank_design
+
+        simulated = []
+
+        class FakeSim:
+            def __init__(self, values):
+                self.values = values
+
+            def to_bundle(self, model, params, name=None):
+                return {"schema": "fake", "W": self.values["W"]}
+
+        def fake_run(module, values, **_):
+            simulated.append(dict(values))
+            return FakeSim(values)
+
+        def metrics(bundle, goals):
+            return {"f0_ghz": round(78.4 / bundle["W"], 6), "s11_at": {}, "bw_mhz": 60.0}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.design.json"
+            path.write_text(json.dumps(blank_design("t", "T")), encoding="utf-8")
+            settings = dict(out=Path(tmp) / "out", sim_root=Path(tmp) / "sim", keep_sim=True,
+                            check_candidates=False, log=lambda *a: None, method="nelder-mead")
+            goals = [make_goal("f0", 2.45)]
+            with mock.patch.object(multiport, "run_model", fake_run), mock.patch.object(opt, "bundle_metrics", metrics):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    first = opt.run_optimization(str(path), [Vary("W", 20, 80, start=70.0)], goals, max_evals=3, **settings)
+                    done = [e["params"]["W"] for e in first["evaluations"]]
+                    simulated.clear()
+                    second = opt.run_optimization(str(path), [Vary("W", 20, 80, start=70.0)], goals, max_evals=6,
+                                                  resume=True, **settings)
+                    with self.assertRaises(ValueError):
+                        opt.run_optimization(str(path), [Vary("W", 20, 80, start=70.0)], [make_goal("f0", 2.5)],
+                                             max_evals=5, resume=True, **settings)
+        self.assertEqual(second["resume_count"], 1)
+        self.assertGreaterEqual(len(second["evaluations"]), len(done))
+        self.assertEqual(len(simulated), len(second["evaluations"]) - len(done), "only the new points are simulated")
+        self.assertTrue(all(v["W"] not in done for v in simulated), (done, simulated))
+
+
+class MemoryGuard(unittest.TestCase):
+    """A run that crosses the memory limit stops cleanly, keeps its record, and stays resumable."""
+
+    def test_probes_read_a_positive_amount(self):
+        import fairbeam.optimize as opt
+
+        self.assertGreater(opt._process_rss_bytes(), 0, "the process RSS is readable")
+        self.assertGreater(opt._total_memory_bytes() or 0, 0, "physical memory is readable")
+
+    def test_the_guard_stops_cleanly_and_keeps_the_record(self):
+        import fairbeam.multiport as multiport
+        import fairbeam.optimize as opt
+        from fairbeam.design import blank_design
+
+        class FakeSim:
+            def __init__(self, values):
+                self.values = values
+
+            def to_bundle(self, model, params, name=None):
+                return {"schema": "fake", "W": self.values["W"]}
+
+        def metrics(bundle, goals):
+            return {"f0_ghz": round(78.4 / bundle["W"], 6), "s11_at": {}, "bw_mhz": 60.0}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.design.json"
+            path.write_text(json.dumps(blank_design("t", "T")), encoding="utf-8")
+            lines = []
+            with mock.patch.object(multiport, "run_model", lambda *a, **k: FakeSim({"W": 40.0})), \
+                    mock.patch.object(opt, "bundle_metrics", metrics), \
+                    mock.patch.object(opt, "_process_rss_bytes", lambda: 10 ** 12):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    doc = opt.run_optimization(str(path), [Vary("W", 20, 80, start=70.0)], [make_goal("f0", 2.45)],
+                                               out=Path(tmp) / "out", sim_root=Path(tmp) / "sim", keep_sim=True,
+                                               check_candidates=False, method="nelder-mead", max_evals=10,
+                                               memory_limit_mb=1, log=lines.append)
+        self.assertEqual(doc["reason"], "memory limit")
+        self.assertEqual(len(doc["evaluations"]), 1, "the evaluation that crossed the limit is recorded")
+        self.assertTrue(any("memory" in line for line in lines))
 
 
 class DesignPrecheck(unittest.TestCase):

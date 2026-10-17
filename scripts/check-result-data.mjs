@@ -140,6 +140,15 @@ const dockSource = readFileSync(new URL("../src/components/Dock.tsx", import.met
 assert.match(dockSource, /patternQuantity:\s*shownQuantity\(\)/, "gallery export forwards the displayed pattern quantity");
 assert.match(dockSource, /patternPort:\s*storedFF\(\)\?\.port/, "gallery export forwards the selected embedded-pattern port");
 
+// a bundle with circular-polarisation data exports the axial ratio beside the shown quantity
+const helix = JSON.parse(readFileSync(new URL("../public/projects/helix-axial.json", import.meta.url), "utf8"));
+const cpFF = helix.results.farfield[0];
+const cpTable = resultDataTable(helix, "pattern");
+const arColumn = cpTable.header.indexOf("Axial ratio (dB)");
+check(arColumn > 0, "a CP bundle exports its axial-ratio column");
+check(cpTable.rows[0][arColumn] === cpFF.cp.axial_ratio_db[0][0], "the axial-ratio column follows the stored grid");
+check(cpTable.header.filter((h) => h === "Axial ratio (dB)").length === 1, "the axial-ratio column is not duplicated");
+
 const tsvRows = [s.header, ...s.rows].map((r) => r.map((x) => x == null ? "" : String(x)).join("\t"));
 const csvText = resultDataCsv(s).trimEnd();
 check(csvText.startsWith("f (GHz),|S11| (dB),|S12| (dB),|S21| (dB),|S22| (dB)\r\n"), "CSV header corresponds to TSV header");

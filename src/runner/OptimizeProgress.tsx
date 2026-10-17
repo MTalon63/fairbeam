@@ -167,7 +167,7 @@ export default function OptimizeProgress() {
               {/* Show every objective, including bandwidth and directivity, for the best point. */}
               {(spec()?.goals ?? []).map((g, i) => {
                 const value = evaluationGoalValue(g, best()!, i);
-                const unit = g.kind === "f0" ? "GHz" : g.kind === "bw_min" ? "MHz" : g.kind === "efficiency_min" ? "%" : ["dmax_min", "realized_gain_min"].includes(g.kind) ? "dBi" : "dB";
+                const unit = g.kind === "f0" ? "GHz" : g.kind === "bw_min" ? "MHz" : g.kind === "efficiency_min" ? "%" : ["dmax_min", "realized_gain_min", "rhcp_min"].includes(g.kind) ? "dBi" : "dB";
                 return ` · ${goalText(g)}: ${num(value, 3)} ${unit}`;
               }).join("")}
               {" "}· {t("opt.progress.evaluationN", { n: best()!.index })}

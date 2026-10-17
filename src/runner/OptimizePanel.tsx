@@ -23,6 +23,7 @@ import {
   optEngine,
   optErrors,
   optPlan,
+  optResume,
   perPortSeconds,
   presetOf,
   removeGoal,
@@ -33,6 +34,7 @@ import {
   setMaxEvals,
   setMethod,
   setOptEngine,
+  setOptResume,
   setVary,
   setVaryKey,
   startOptimize,
@@ -54,6 +56,9 @@ const TARGET_LABEL: Record<GoalKind, string> = {
   dmax_min: "opt.target.atLeast",
   realized_gain_min: "opt.target.atLeast",
   efficiency_min: "opt.target.atLeast",
+  ar_max: "opt.target.atMost",
+  rhcp_min: "opt.target.atLeast",
+  xpd_min: "opt.target.atLeast",
   match_all: "opt.target.everySii",
   sij_max: "|Sij| ≤",
   sij_min: "|Sij| ≥",
@@ -244,6 +249,10 @@ export default function OptimizePanel(props: { onStarted?: (job: import("./api")
           <NumberField class="rp-input op-evals" min="1" max={MAX_OPT_EVALS} step="1" value={maxEvals()}
             onInput={(e) => setMaxEvals(Math.round(Number(e.currentTarget.value)))} aria-invalid={!!err("max_evals")} />
         </label>
+        <label class="rp-inline-field" title={t("opt.resume.hint")}>
+          <input type="checkbox" checked={optResume()} onChange={(e) => setOptResume(e.currentTarget.checked)} />
+          <span>{t("opt.resume")}</span>
+        </label>
         <Show when={engines().length > 1}>
           <div class="seg seg-sm" role="radiogroup" aria-label={t("run.engine")} onKeyDown={radioGroupKeys}>
             <For each={engines()}>
@@ -290,6 +299,9 @@ export default function OptimizePanel(props: { onStarted?: (job: import("./api")
           </Show>
         </Show>
       </p>
+      <Show when={maxEvals() > 40}>
+        <p class="note" role="note">{t("opt.note.largeBudget")}</p>
+      </Show>
       <label class="rp-mini" for="op-name">
         <span>{t("opt.name")} <span class="muted">{t("opt.name.optional")}</span></span>
         <input autocomplete="off" id="op-name" class="rp-input rp-input-text" type="text" maxlength="80" value={runName()} placeholder={t("opt.name.placeholder")} onInput={(e) => setRunName(e.currentTarget.value)} />

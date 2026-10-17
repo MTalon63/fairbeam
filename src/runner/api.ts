@@ -348,7 +348,7 @@ export interface JobSweep {
 export type SweepAxisRequest = { key: string; values: number[] } | { key: string; start: number; stop: number; steps: number };
 
 /** Single-port goals, and multi-port goals on results.sparams (sij_max, sij_min, match_all). */
-export type GoalKind = "f0" | "s11_max" | "bw_min" | "dmax_min" | "sij_max" | "sij_min" | "match_all" | "realized_gain_min" | "efficiency_min";
+export type GoalKind = "f0" | "s11_max" | "bw_min" | "dmax_min" | "ar_max" | "rhcp_min" | "xpd_min" | "sij_max" | "sij_min" | "match_all" | "realized_gain_min" | "efficiency_min";
 export interface OptGoal {
   kind: GoalKind;
   target: number;
@@ -373,6 +373,10 @@ export interface OptMetrics {
   bw_mhz: number | null;
   s11_at: Record<string, number>;
   dmax_at: Record<string, number>;
+  /** "f" -> axial ratio / RHCP directivity / XPD at the directivity peak, dB (polarization goals) */
+  ar_at?: Record<string, number | null>;
+  rhcp_at?: Record<string, number | null>;
+  xpd_at?: Record<string, number | null>;
   /** "i,j@f" -> |S_ij| dB (null when neither column was driven) */
   sij_at?: Record<string, number | null>;
   /** "f" -> worst |S_ii| and every port's value (null when a port was not driven) */
@@ -437,7 +441,7 @@ export interface Job {
     source?: { model_id: string; workspace_hash: string; backup_scope: string; design_sha256: string } };
   /** Omitted by polling summaries; explicit researchRun details include the result. */
   result?: ResearchResult | null;
-  optimize?: { vary: OptVary[]; goals: OptGoal[]; max_evals: number; method: string; excite?: string } | null;
+  optimize?: { vary: OptVary[]; goals: OptGoal[]; max_evals: number; method: string; excite?: string; resume?: boolean } | null;
   /** display name given by the user (the bundle file name is its slug, `name`) */
   label: string | null;
   sweep: JobSweep | null;
@@ -597,7 +601,7 @@ export const api = {
   cancel: (id: string) => call<Job>("POST", `/runs/${encodeURIComponent(id)}/cancel`, {}),
   /** cancel every queued run; the running one keeps running (stop it with cancel) */
   clearQueue: () => call<{ cancelled: string[]; runs: Job[] }>("POST", "/queue/clear", {}),
-  submitOptimization: (body: { model: string; params: Record<string, ParamValue>; threads: number; engine?: string; name?: string; vary: OptVary[]; goals: OptGoal[]; max_evals: number; cells?: number; method?: string; excite?: string }) =>
+  submitOptimization: (body: { model: string; params: Record<string, ParamValue>; threads: number; engine?: string; name?: string; vary: OptVary[]; goals: OptGoal[]; max_evals: number; cells?: number; method?: string; excite?: string; resume?: boolean }) =>
     call<Job>("POST", "/optimizations", withThreads(body)),
   saveOptimizationBest: (id: string) => call<{ file: string }>("POST", `/optimizations/${encodeURIComponent(id)}/save-best`, {}),
   submitSweep: (body: { model: string; params: Record<string, ParamValue>; threads: number; engine?: string; name?: string; end_criteria_db?: number; sweep?: SweepAxisRequest[]; cells?: number; sequences?: { name: string; sweep: SweepAxisRequest[] }[] }) =>

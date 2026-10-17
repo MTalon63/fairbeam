@@ -17,7 +17,7 @@
 param(
     [string]$Prefix = "C:\opt\openEMS-gpu",
     [string]$Archive,                 # a local copy of the package instead of downloading it
-    [string]$Python = "3.13",         # the package has cp313 and cp314 wheels
+    [string]$Python = "3.14",         # the package has cp313 and cp314 wheels
     [switch]$Reinstall
 )
 $ErrorActionPreference = "Stop"
