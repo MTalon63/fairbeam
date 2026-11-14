@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { CircleAlert, LoaderCircle, Plus, X } from "lucide-solid";
 import "../styles/sweep-dialog.css";
 import { useModal } from "../lib/dialog";
@@ -261,18 +261,18 @@ function Content() {
         <div class="sd-body">
           <div class="sd-layout">
             <div class="sd-sequences" role="group" aria-label={t("sweep.sequences")}>
-              <For each={definition().sequences}>
+              <Index each={definition().sequences}>
                 {(s, i) => (
                   <button
-                    class={`btn btn-ghost btn-sm ${selected() === i() ? "active" : ""}`}
-                    aria-pressed={selected() === i()}
-                    aria-current={selected() === i() ? "true" : undefined}
-                    onClick={() => setSelected(i())}
+                    class={`btn btn-ghost btn-sm ${selected() === i ? "active" : ""}`}
+                    aria-pressed={selected() === i}
+                    aria-current={selected() === i ? "true" : undefined}
+                    onClick={() => setSelected(i)}
                   >
-                    {s.name || t("sweep.sequenceN", { n: i() + 1 })}
+                    {s().name || t("sweep.sequenceN", { n: i + 1 })}
                   </button>
                 )}
-              </For>
+              </Index>
               <button
                 class="btn btn-ghost btn-sm"
                 onClick={() => {
@@ -301,20 +301,21 @@ function Content() {
                         }
                       />
                     </label>
-                    <For each={s().axes}>
+                    {/* Keep editable rows mounted when their values change. */}
+                    <Index each={s().axes}>
                       {(axis, i) => (
                         <fieldset class="rp-axis stack-sm">
-                          <legend class="visually-hidden">{t("sweep.axisLegend", { n: i() + 1 })}</legend>
+                          <legend class="visually-hidden">{t("sweep.axisLegend", { n: i + 1 })}</legend>
                           <div class="sd-axis-head">
                             <select
                               class="rp-select"
-                              aria-label={t("sweep.parameterN", { n: i() + 1 })}
-                              value={axis.key}
+                              aria-label={t("sweep.parameterN", { n: i + 1 })}
+                              value={axis().key}
                               onChange={(e) =>
                                 mutate((x) => ({
                                   ...x,
                                   axes: x.axes.map((a, k) =>
-                                    k === i()
+                                    k === i
                                       // another parameter: its own window (the old one may be outside its limits)
                                       ? { ...a, key: e.currentTarget.value, ...(a.kind === "range" ? { ...seedRange(e.currentTarget.value), steps: a.steps } : {}) }
                                       : a,
@@ -336,13 +337,13 @@ function Content() {
                             </select>
                             <select
                               class="rp-select"
-                              aria-label={t("sweep.kindAria", { key: axis.key })}
-                              value={axis.kind}
+                              aria-label={t("sweep.kindAria", { key: axis().key })}
+                              value={axis().kind}
                               onChange={(e) =>
                                 mutate((x) => ({
                                   ...x,
                                   axes: x.axes.map((a, k) => {
-                                    if (k !== i()) return a;
+                                    if (k !== i) return a;
                                     return e.currentTarget.value === "range"
                                       ? { key: a.key, kind: "range", ...seedRange(a.key) }
                                       : { key: a.key, kind: "list", list: "" };
@@ -355,11 +356,11 @@ function Content() {
                             </select>
                             <button
                               class="icon-btn"
-                              aria-label={t("sweep.removeAxis", { key: axis.key })}
+                              aria-label={t("sweep.removeAxis", { key: axis().key })}
                               onClick={() =>
                                 mutate((x) => ({
                                   ...x,
-                                  axes: x.axes.filter((_, k) => k !== i()),
+                                  axes: x.axes.filter((_, k) => k !== i),
                                 }))
                               }
                             >
@@ -367,18 +368,18 @@ function Content() {
                             </button>
                           </div>
                           <Show
-                            when={axis.kind === "range"}
+                            when={axis().kind === "range"}
                             fallback={
                               <label class="rp-mini">
                                 {t("sweep.listValues")}
                                 <input autocomplete="off"
                                   class="rp-input"
-                                  value={axis.kind === "list" ? axis.list : ""}
+                                  value={(() => { const a = axis(); return a.kind === "list" ? a.list : ""; })()}
                                   onInput={(e) =>
                                     mutate((x) => ({
                                       ...x,
                                       axes: x.axes.map((a, k) =>
-                                        k === i() && a.kind === "list"
+                                        k === i && a.kind === "list"
                                           ? {
                                               ...a,
                                               list: e.currentTarget.value,
@@ -400,13 +401,13 @@ function Content() {
                                     <input autocomplete="off"
                                       class="rp-input"
                                       value={
-                                        axis.kind === "range" ? axis[k] : ""
+                                        (() => { const a = axis(); return a.kind === "range" ? a[k] : ""; })()
                                       }
                                       onInput={(e) =>
                                         mutate((x) => ({
                                           ...x,
                                           axes: x.axes.map((a, j) =>
-                                            j === i() && a.kind === "range"
+                                            j === i && a.kind === "range"
                                               ? {
                                                   ...a,
                                                   [k]: e.currentTarget.value,
@@ -425,7 +426,7 @@ function Content() {
                           </Show>
                         </fieldset>
                       )}
-                    </For>
+                    </Index>
                     <button class="btn btn-ghost btn-sm" onClick={addAxis}>
                       <Plus size={14} aria-hidden="true" /> {t("sweep.addParameter")}
                     </button>

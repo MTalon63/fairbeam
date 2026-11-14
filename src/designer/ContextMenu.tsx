@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { openColor } from "./ColorPopover";
-import { ChevronLeft, CircleDot, Copy, Eye, EyeOff, Folder, FolderInput, GitMerge, Move, Palette, Pencil, Trash2, X, Zap } from "lucide-solid";
+import { ChevronLeft, CircleDot, Copy, Eye, EyeOff, Folder, FolderInput, GitMerge, Move, Palette, Pencil, RotateCcw, RotateCw, Trash2, X, Zap } from "lucide-solid";
 import { useModal } from "../lib/dialog";
 import { viewportChangeCloses } from "../lib/menuDismiss";
 import { ExprField, SelectField } from "./DesignPane";
@@ -199,6 +199,9 @@ function Menu(props: { target: ContextTarget; port: () => void; edge: (j:number)
       <button class="menu-item" role="menuitem" title={t("contextMenu.renameTitle", { key: SHORTCUTS.rename.key })} onClick={() => act(() => setRenaming(props.target.selection))}><Pencil /> {t("contextMenu.rename", { key: SHORTCUTS.rename.key })}</button>
       <button class="menu-item" role="menuitem" onClick={() => act(() => setHiddenParts(part()?.name ?? "", !hiddenParts[part()?.name ?? ""]))}>
         {hiddenParts[part()?.name ?? ""] ? <><Eye /> {t("contextMenu.showPart")}</> : <><EyeOff /> {t("contextMenu.hidePart")}</>}</button>
+      <div class="dz-menu-separator" role="separator" />
+      <button class="menu-item" role="menuitem" onClick={() => act(() => document.querySelector(".viewport")?.dispatchEvent(new CustomEvent("fairbeam:view", { detail: "roll-left" })))}><RotateCcw /> {t("viewport.roll.left")}</button>
+      <button class="menu-item" role="menuitem" onClick={() => act(() => document.querySelector(".viewport")?.dispatchEvent(new CustomEvent("fairbeam:view", { detail: "roll-right" })))}><RotateCw /> {t("viewport.roll.right")}</button>
       <div class="dz-menu-separator" role="separator" />
       <button class="menu-item" role="menuitem" title={health()?.desktop ? SHORTCUTS.transform.key : undefined} onClick={() => act(() => openTransform("move", props.target.selection))}><Move /> {t("contextMenu.transform")}</button>
       <button class="menu-item" role="menuitem" onClick={() => { const at = { x: props.target.x, y: props.target.y }; act(() => openColor({ kind: "parts", indices: [s.i], label: part()?.label || part()?.name || "", ...at })); }}><Palette /> {t("contextMenu.color")}</button>

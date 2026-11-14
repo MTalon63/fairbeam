@@ -4,9 +4,10 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { Aperture, Crosshair, Gem } from "lucide-solid";
+import { Aperture, Crosshair, Gem, RotateCw } from "lucide-solid";
 import { activeExportSurface, exportNotice, geometryAvailable, registerSurfaceExports } from "../components/exportContext";
 import { CAMERA_VIEWS, VIEW_DIRECTIONS, cameraShortcut, isViewCommand, nearestAxis, poseToSave, validPose, type CameraPose, type ViewName, type ViewCommand } from "./cameraViews";
+import { applyCameraRoll } from "./cameraRoll";
 import { CameraViewIcon } from "./CameraViewIcon";
 import { stackLabels } from "./labelStack";
 import { bundle, centerView, farfieldIndex, setFarfieldIndex, hiddenParts, hoverPart, layers, meshPlane, meshHighlight, selectedPart, selectedShape, setHoverPart, setViewCursor, solidFade, theme } from "../state";
@@ -327,7 +328,9 @@ export default function Viewport() {
     let glyphLabels: { glyph: PortGlyph; label: CSS2DObject }[] = [];
     const renderTask = frameTask(render);
     const requestRender = renderTask.request;
+    let viewQuarterTurns = 0;
     const onControlsChange = () => {
+      applyCameraRoll(camera, controls.target, viewQuarterTurns);
       const direction = camera.position.clone().sub(controls.target).normalize();
       setView(CAMERA_VIEWS.find(({ id }) => direction.dot(VIEW_DIRS[id]) > 1 - 1e-8)?.id ?? null);
       updateGroundGrid(); requestRender();
@@ -350,6 +353,7 @@ export default function Viewport() {
     let contactMaterials: THREE.MeshStandardMaterial[] = [];
     let updateContactMarkers: (() => void) | undefined;
     function render() {
+      applyCameraRoll(camera, controls.target, viewQuarterTurns);
       const pulseContacts = contactMaterials.length > 0 && hostVisible && !document.hidden
         && !motionQuery.matches && centerView() !== "drawing" && !rendered?.active;
       const contactIntensity = pulseContacts ? 0.2 + 0.2 * Math.cos(performance.now() * 2 * Math.PI / 2500) : 0.05;
@@ -373,7 +377,7 @@ export default function Viewport() {
       renderer.setViewport(8, 8, g, g);
       const d = camera.position.clone().sub(controls.target).normalize().multiplyScalar(4);
       gizmoCam.position.copy(d);
-      gizmoCam.lookAt(0, 0, 0);
+      gizmoCam.quaternion.copy(camera.quaternion);
       renderScene(gizmo, gizmoCam);
       renderer.setScissorTest(false);
       renderer.autoClear = true;
@@ -443,6 +447,7 @@ export default function Viewport() {
     });
 
     function orientView(v: ViewName) {
+      viewQuarterTurns = 0;
       const dist = camera.position.distanceTo(controls.target);
       camera.position.copy(controls.target).addScaledVector(VIEW_DIRS[v], dist);
       controls.update();
@@ -490,6 +495,7 @@ export default function Viewport() {
     function frameView(v: ViewName) { orientView(v); fitCurrentView(); }
     /** Put the camera at a saved pose (a design's opening view), with the near and far planes of a fit at that distance. */
     function applyPose(pose: CameraPose) {
+      viewQuarterTurns = 0;
       controls.target.set(...pose.target);
       camera.position.set(...pose.camera);
       const dist = camera.position.distanceTo(controls.target);
@@ -514,6 +520,13 @@ export default function Viewport() {
     function applyView(command: ViewCommand) {
       if (!bundle()) return;
       if (command === "fit") { fitCurrentView(); say(t("viewport.say.fitted")); return; }
+      if (command === "roll-left" || command === "roll-right") {
+        viewQuarterTurns = (viewQuarterTurns + (command === "roll-right" ? 1 : 3)) % 4;
+        applyCameraRoll(camera, controls.target, viewQuarterTurns);
+        say(t(command === "roll-right" ? "viewport.roll.right" : "viewport.roll.left"));
+        requestRender();
+        return;
+      }
       const v = command === "nearest" ? nearestAxis(camera.position.clone().sub(controls.target)) : command;
       orientView(v);
       say(t("viewport.say.view", { view: t(VIEW_LABEL[v]) }));
@@ -1400,7 +1413,7 @@ export default function Viewport() {
       Object.values(hiddenParts); // a part hidden or shown in the tree redraws the picture
       untrack(() => { void syncRendered().catch((e) => { console.error(e); setRenderedView(false); exportNotice(t("render.error.view", { error: String(e) })); }); });
     });
-    const unregisterView = registerViewProvider(() => ({ position: camera.position.toArray(), target: controls.target.toArray(), up: [0, 0, 1], fov: camera.fov }));
+    const unregisterView = registerViewProvider(() => ({ position: camera.position.toArray(), target: controls.target.toArray(), up: new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).toArray(), fov: camera.fov }));
     onCleanup(() => { unregisterView(); renderedDisposed = true; rendered?.dispose(); rendered = null; });
 
     // ---- screenshot
@@ -1516,6 +1529,9 @@ export default function Viewport() {
         </div>
         <button class="icon-btn" onClick={() => go("fit")} data-action="fit" title={t("viewport.fit")} aria-label={t("viewport.fit")}>
           <Crosshair size={16} aria-hidden="true" />
+        </button>
+        <button class="icon-btn" onClick={() => go("roll-right")} data-action="roll-right" title={t("viewport.roll.right")} aria-label={t("viewport.roll.right")}>
+          <RotateCw size={16} aria-hidden="true" />
         </button>
         <button class="seg-btn vp-rendered-toggle" classList={{ active: renderedView() }} aria-pressed={renderedView()} data-action="rendered"
           disabled={!bundle()?.parts.length} title={t("render.toggle.title")} onClick={() => setRenderedView(!renderedView())}>

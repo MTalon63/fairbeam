@@ -4153,6 +4153,8 @@
   "viewSwitch.aria": "Orta görünüm",
   "viewSwitch.drawing": "Çizim",
   "viewSwitch.threeD": "3B",
+  "viewport.roll.left": "Görünümü saat yönünün tersine 90° döndür",
+  "viewport.roll.right": "Görünümü saat yönünde 90° döndür",
   "viewport.aria": "Modelin 3B görünümü",
   "viewport.ariaNamed": "{name} 3B görünümü",
   "viewport.btn.iso": "İzo",

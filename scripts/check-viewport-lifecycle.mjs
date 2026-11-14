@@ -1,3 +1,5 @@
+import { PerspectiveCamera, Vector3 } from "three";
+import { applyCameraRoll } from "../src/scene/cameraRoll.ts";
 // Deterministic checks for the viewport's queued work and preview glyph bounds.
 // Run with: node --experimental-strip-types scripts/check-viewport-lifecycle.mjs
 import assert from "node:assert/strict";
@@ -98,3 +100,25 @@ stopPixelRatio();
 assert.ok(queries.every((query) => query.listeners.size === 0), "unmount removes all resolution listeners");
 
 console.log("viewport lifecycle: frame cleanup, marker bounds, fractional DPR transitions and opening-view poses pass");
+
+// A quarter turn changes screen orientation, never model coordinates or the viewing position.
+{
+  const camera = new PerspectiveCamera(45, 1.6, 0.1, 1000);
+  camera.up.set(0, 0, 1); camera.position.set(0, -10, 0);
+  const target = new Vector3(), point = new Vector3(0, 0, 1);
+  const originalPosition = camera.position.clone();
+  applyCameraRoll(camera, target, 0);
+  const original = camera.quaternion.clone();
+  const vertical = point.clone().project(camera);
+  applyCameraRoll(camera, target, 1);
+  const horizontal = point.clone().project(camera);
+  assert.ok(Math.abs(horizontal.y) < 1e-12 && horizontal.x > 0);
+  assert.ok(vertical.y > 0 && Math.abs(vertical.x) < 1e-12);
+  const once = camera.quaternion.clone();
+  applyCameraRoll(camera, target, 1);
+  assert.ok(once.angleTo(camera.quaternion) < 1e-7, "redraw does not accumulate a roll");
+  for (const turns of [2, 3, 4]) applyCameraRoll(camera, target, turns);
+  assert.ok(original.angleTo(camera.quaternion) < 1e-7, "four turns restore the view");
+  assert.deepEqual(camera.position.toArray(), originalPosition.toArray());
+  assert.deepEqual(target.toArray(), [0, 0, 0]);
+}

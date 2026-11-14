@@ -14,7 +14,7 @@ export function poseToSave(camera: { x: number; y: number; z: number }, target: 
   const r = (x: number) => Math.round(x * 1e4) / 1e4 || 0;
   return { camera: [r(camera.x), r(camera.y), r(camera.z)], target: [r(target.x), r(target.y), r(target.z)] };
 }
-export type ViewCommand = ViewName | "nearest" | "fit";
+export type ViewCommand = ViewName | "nearest" | "fit" | "roll-left" | "roll-right";
 
 export const CAMERA_VIEWS = [
   { id: "iso", label: "viewport.btn.iso", title: "viewport.view.isometric", shortcut: "0" },
@@ -48,5 +48,5 @@ export function cameraShortcut(e: Pick<KeyboardEvent, "key" | "code" | "ctrlKey"
 }
 
 export function isViewCommand(value: unknown): value is ViewCommand {
-  return value === "nearest" || value === "fit" || CAMERA_VIEWS.some((v) => v.id === value);
+  return value === "nearest" || value === "fit" || value === "roll-left" || value === "roll-right" || CAMERA_VIEWS.some((v) => v.id === value);
 }
