@@ -4234,6 +4234,8 @@
   "viewSwitch.aria": "Center view",
   "viewSwitch.drawing": "Drawing",
   "viewSwitch.threeD": "3D",
+  "viewport.roll.left": "Rotate view 90° counterclockwise",
+  "viewport.roll.right": "Rotate view 90° clockwise",
   "viewport.aria": "3D view of the model",
   "viewport.ariaNamed": "3D view of {name}",
   "viewport.btn.iso": "Iso",

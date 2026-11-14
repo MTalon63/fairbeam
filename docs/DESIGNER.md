@@ -237,6 +237,12 @@ directivity rather than its gain.
   visible, except inside fields, editors, menus, dialogs, or an active drawing tool. With the 3D
   view focused, arrows orbit (Shift pans), +/− zoom, and Space or F fits the model. Orbiting away
   from a preset clears its pressed state. The number-row aliases are provided for laptop keyboards.
+  **Rotate view 90°** turns the view clockwise from the 3D toolbar. Right-click a solid
+  for clockwise and counterclockwise actions. This changes only the camera display, never
+  the antenna or simulation coordinates. Fit, pan and zoom retain the turn; choosing a
+  camera preset or an Opening view resets it. The turn is temporary and is not saved in
+  the design's Opening view.
+
   **Opening view**: View › Opening view › **Save** keeps the current camera in the design (as `view`:
   the camera position and the point it looks at, in mm). The design then opens with that camera
   instead of the fitted isometric view, so a small detail (a probe tip on a large tooth, a feed under

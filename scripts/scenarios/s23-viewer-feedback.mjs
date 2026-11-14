@@ -33,6 +33,41 @@ export default {
       await s.click('header.screen.start',{sel:'.mode-switch button'});await s.wait('.home');
       await s.fill('.home-design-search input','igdir');assert.ok(await s.page.$(`[data-home-design="${b}"]`));await s.fill('.home-design-search input','');
     });
+    await s.step('quarter turns rotate the view without editing the antenna', async()=>{
+      await s.ev(async(id,m)=>m.d.enterDesign(id), b, mods); await s.wait('.viewport');
+      await s.ev((_,m)=>m.d.edit(d=>d.parts.push({name:'roll_fixture',material:d.materials[0].name,primitives:[{kind:'box',start:[0,0,0],stop:[2,3,30]}]})),null,mods);
+      await s.wait('.nt-row[data-id="part:0"]');
+      const before = await s.ev((_,m)=>JSON.stringify(m.d.draft),null,mods);
+      await s.page.evaluate(()=>document.querySelector('.viewport').dispatchEvent(new CustomEvent('fairbeam:view',{detail:'front'})));
+      const pose = () => s.page.evaluate(()=>{const {camera,controls}=window.__fairbeam;return {q:camera.quaternion.toArray(),p:camera.position.toArray(),t:controls.target.toArray()};});
+      const original=await pose();
+      await s.click('viewport.roll.right', {sel:'button[data-action="roll-right"]'});
+      const rolled=await pose();
+      assert.deepEqual(rolled.p,original.p);assert.deepEqual(rolled.t,original.t);
+      assert.ok(rolled.q.some((v,i)=>Math.abs(v-original.q[i])>0.1));
+      await s.page.evaluate(()=>{document.querySelector('.viewport').dispatchEvent(new CustomEvent('fairbeam:view',{detail:'fit'}));const {controls}=window.__fairbeam; controls.update();});
+      const refreshed=await pose();
+      for(let i=0;i<4;i++)assert.ok(Math.abs(refreshed.q[i]-rolled.q[i])<1e-7,'an orbit-controls refresh preserves roll');
+      for(let i=0;i<3;i++)await s.click('viewport.roll.right', {sel:'button[data-action="roll-right"]'});
+      const restored=await pose();
+      for(let i=0;i<4;i++)assert.ok(Math.abs(restored.q[i]-original.q[i])<1e-7);
+      for(const key of ['viewport.roll.left','viewport.roll.right']) {
+        await s.page.click('.nt-row[data-id="part:0"]', {button:'right'});
+        if(key==='viewport.roll.right' && process.env.FAIRBEAM_SCENARIO_SCREENSHOTS) {
+          mkdirSync(process.env.FAIRBEAM_SCENARIO_SCREENSHOTS,{recursive:true});
+          await s.page.screenshot({path:join(process.env.FAIRBEAM_SCENARIO_SCREENSHOTS,`S23-${s.lang}-quarter-turn.png`)});
+        }
+        await s.click(key,{within:'[role="menu"]'});
+        await s.gone('[role="menu"]');
+        const menuPose=await pose();
+        if(key==='viewport.roll.left') assert.ok(menuPose.q.some((v,i)=>Math.abs(v-original.q[i])>0.1));
+        else for(let i=0;i<4;i++) assert.ok(Math.abs(menuPose.q[i]-original.q[i])<1e-7);
+
+      }
+      assert.equal(await s.ev((_,m)=>JSON.stringify(m.d.draft),null,mods),before,'no antenna geometry or saved design changed');
+      await s.ev((_,m)=>m.d.undo(),null,mods);
+      await s.click('header.screen.start',{sel:'.mode-switch button'});await s.wait('.home');
+    });
     await s.step('file drop hint clears on leaving a child and stays during internal transitions',async()=>{
       const result=await s.page.evaluate(()=>{
         const child=document.querySelector('.home');
