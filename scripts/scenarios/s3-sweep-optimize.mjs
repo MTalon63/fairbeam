@@ -22,6 +22,7 @@ export default {
       await s.click('ribbon.sim.meshSettings', { sel: '.rb-btn, button' });
       await s.wait('[role=dialog]');
       assert.ok(await s.find('button', await s.T('common.cancel'), { within: '[role=dialog]' }), 'unchanged: the button says Cancel');
+      await s.click('sim.section.freq', { within: '[role=dialog]' });
       await s.fill(await s.field('f max', { within: '[role=dialog]' }), '3.3');
       assert.notEqual(await text(), before, 'the edit applies to the design at once');
       const discard = await s.wait('button', await s.T('sim.discard'), { within: '[role=dialog]' });
@@ -50,6 +51,28 @@ export default {
       assert.ok(Math.abs(start - clamp(p.value * 0.9)) < 1e-9 * Math.max(1, Math.abs(p.value)), `start is 90 % of ${key} = ${p.value} (got ${start})`);
       assert.ok(Math.abs(stop - clamp(p.value * 1.1)) < 1e-9 * Math.max(1, Math.abs(p.value)), `stop is 110 % of ${key} = ${p.value} (got ${stop})`);
       assert.equal(steps, 5);
+    });
+    await s.step('sweep typing preserves the focused input and caret through every edit', async () => {
+      for (const label of ['sweep.sequenceName', 'sweep.range.start', 'sweep.range.stop', 'sweep.range.steps']) {
+        const input = await s.field(await s.T(label), { within: '[role=dialog]' });
+        const before = await input.evaluate(e => e.value);
+        await input.focus();
+        await input.evaluate(e => e.setSelectionRange(0, e.value.length));
+        await s.page.keyboard.type('12.34');
+        assert.equal(await input.evaluate(e => e.isConnected && document.activeElement === e), true, label);
+        assert.equal(await input.evaluate(e => e.value), '12.34', label);
+        await s.page.keyboard.press('Backspace');
+        assert.deepEqual(await input.evaluate(e => [e.value, e.selectionStart, document.activeElement === e]), ['12.3', 4, true]);
+        await s.fill(input, before);
+      }
+      const kind = await s.wait('.rp-axis select:nth-of-type(2)');
+      await kind.select('list');
+      const list = await s.field(await s.T('sweep.listValues'), { within: '[role=dialog]' });
+      await list.focus();
+      await s.page.keyboard.type('1, 2, 3');
+      assert.deepEqual(await list.evaluate(e => [e.value, e.isConnected && document.activeElement === e]), ['1, 2, 3', true]);
+      await kind.select('range');
+      assert.equal(await jobCount(), jobsBefore, 'editing never launches a solver');
     });
     await s.step('validate, then queue the sweep and cancel before it runs', async () => {
       await s.click('sweep.check', { within: '[role=dialog]' });

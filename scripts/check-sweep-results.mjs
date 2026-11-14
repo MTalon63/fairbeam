@@ -72,11 +72,11 @@ const en = JSON.parse(await readFile(new URL("../src/i18n/en.json", import.meta.
 assert.match(dialog, /setNotice\(t\("sweep\.err\.stop", \{ error:/);
 assert.equal(en["sweep.err.stop"], "Could not stop the sweep: {error}");
 assert.doesNotMatch(dialog, />\s*Edit\s*</, "no placeholder Edit button");
-assert.match(dialog, /aria-label=\{t\("sweep\.parameterN", \{ n: i\(\) \+ 1 \}\)\}/);
+assert.match(dialog, /aria-label=\{t\("sweep\.parameterN", \{ n: i \+ 1 \}\)\}/);
 assert.equal(en["sweep.parameterN"], "Parameter {n}");
-assert.match(dialog, /aria-label=\{t\("sweep\.kindAria", \{ key: axis\.key \}\)\}/);
+assert.match(dialog, /aria-label=\{t\("sweep\.kindAria", \{ key: axis\(\)\.key \}\)\}/);
 assert.equal(en["sweep.kindAria"], "Values of {key}: range or list");
-assert.match(dialog, /aria-pressed=\{selected\(\) === i\(\)\}/);
+assert.match(dialog, /aria-pressed=\{selected\(\) === i\}/);
 assert.doesNotMatch(dialog, /<(X|Plus|CircleAlert|LoaderCircle) size=\{\d+\}(?![^>]*aria-hidden)[^>]*>/, "icons are aria-hidden");
 assert.doesNotMatch(dialog, /cells checked/, "a passed Check is a status line, not an alert");
 assert.match(dialog, /<p class="note" role="status">\{info\(\)\}<\/p>/);
