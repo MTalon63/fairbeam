@@ -99,10 +99,10 @@ class DensityTest(unittest.TestCase):
 
     def test_circular_polarisation_outputs_are_opt_in(self):
         d = self.design()
-        self.assertIsNone((cv.with_density(d, 20).get("far_field") or {}).get("cp_outputs"))
-        self.assertTrue((cv.with_density(d, 20, cp_outputs=True).get("far_field") or {}).get("cp_outputs"))
-        self.assertIsNone((d.get("far_field") or {}).get("cp_outputs"), "the original design is untouched")
-        self.assertTrue(cv.enable_cp(d)["far_field"]["cp_outputs"])
+        self.assertIsNone((cv.with_density(d, 20).get("far_field") or {}).get("circular"))
+        self.assertTrue((cv.with_density(d, 20, cp_outputs=True).get("far_field") or {}).get("circular"))
+        self.assertIsNone((d.get("far_field") or {}).get("circular"), "the original design is untouched")
+        self.assertTrue(cv.enable_cp(d)["far_field"]["circular"])
 
 
 class DensitiesTest(unittest.TestCase):
@@ -535,9 +535,9 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(res["study"]["convergence"]["tolerances"]["ar_db"], 0.5)
         job = self.manager.jobs[res["runs"][0]["id"]]
         snapshot = json.loads((job.dir / "input" / "patch_cv.design.json").read_text(encoding="utf-8"))
-        self.assertIs(snapshot["far_field"]["cp_outputs"], True)
+        self.assertIs(snapshot["far_field"]["circular"], True)
         saved = json.loads((self.models / "patch_cv.design.json").read_text(encoding="utf-8"))
-        self.assertIsNone((saved.get("far_field") or {}).get("cp_outputs"), "the saved design is untouched")
+        self.assertIsNone((saved.get("far_field") or {}).get("circular"), "the saved design is untouched")
 
     def test_refusals(self):
         from fairbeam.server import ApiError
