@@ -21,8 +21,9 @@ from fairbeam.design import template_design  # noqa: E402
 from fairbeam.jobs import JobManager  # noqa: E402
 
 
-def fake_bundle(f_res, s11_db=-25.0, dmax=6.5, cells=1000, farfield=True):
-    """A one-port result with a resonance at f_res of depth s11_db (Zin real there)."""
+def fake_bundle(f_res, s11_db=-25.0, dmax=6.5, cells=1000, farfield=True, ar_db=None):
+    """A one-port result with a resonance at f_res of depth s11_db (Zin real there). ``ar_db`` adds the
+    circular-polarisation block the axial-ratio criterion reads."""
     f = np.linspace(1e9, 3e9, 801)
     rho = 10 ** (s11_db / 20)
     r = 50 * (1 + rho) / (1 - rho)
@@ -30,6 +31,11 @@ def fake_bundle(f_res, s11_db=-25.0, dmax=6.5, cells=1000, farfield=True):
     s11 = (zin - 50) / (zin + 50)
     db = 20 * np.log10(np.abs(s11))
     k = int(np.argmin(db))
+    ff = {"f": f_res, "dmax_dbi": dmax, "rad_efficiency": 0.9}
+    if ar_db is not None:
+        pair = {"theta": 0.0, "phi": 0.0, "rhcp_dbi": 6.0, "lhcp_dbi": 6.0 - ar_db, "axial_ratio_db": ar_db}
+        ff["cp"] = {"rhcp_dbi": [6.0], "lhcp_dbi": [6.0 - ar_db], "axial_ratio_db": [[ar_db]],
+                    "peak": pair, "boresight": pair}
     return {
         "ports": [{"number": 1, "excite": True}],
         "mesh": {"total_cells": cells, "min_cell": 0.1, "max_cell": 5.0},
@@ -40,14 +46,14 @@ def fake_bundle(f_res, s11_db=-25.0, dmax=6.5, cells=1000, farfield=True):
                             "zin_re": zin.real.tolist(), "zin_im": zin.imag.tolist(), "z_ref": 50.0}},
             "bands": [{"f_lo": f_res * 0.99, "f_hi": f_res * 1.01, "f_center": float(f[k]), "s11_min_db": float(db[k]),
                        "fractional_bw": 0.02, "edge_lo": False, "edge_hi": False}] if s11_db < -10 else [],
-            "farfield": [{"f": f_res, "dmax_dbi": dmax, "rad_efficiency": 0.9}] if farfield else [],
+            "farfield": [ff] if farfield else [],
         },
     }
 
 
-def m(f=2.4e9, s11=-20.0, dmax=6.0, z=(50.0, 0.0), no_resonance=False):
+def m(f=2.4e9, s11=-20.0, dmax=6.0, z=(50.0, 0.0), no_resonance=False, ar=None):
     return {"f_res": f, "s11_db": s11, "dmax_dbi": dmax, "zin_re": z[0], "zin_im": z[1],
-            "no_resonance": no_resonance, "solver_converged": True}
+            "no_resonance": no_resonance, "solver_converged": True, "ar_db": ar}
 
 
 class DensityTest(unittest.TestCase):
@@ -91,6 +97,14 @@ class DensityTest(unittest.TestCase):
             cv.module_at_density(object(), 25)  # a Python model has no DESIGN
 
 
+    def test_circular_polarisation_outputs_are_opt_in(self):
+        d = self.design()
+        self.assertIsNone((cv.with_density(d, 20).get("far_field") or {}).get("cp_outputs"))
+        self.assertTrue((cv.with_density(d, 20, cp_outputs=True).get("far_field") or {}).get("cp_outputs"))
+        self.assertIsNone((d.get("far_field") or {}).get("cp_outputs"), "the original design is untouched")
+        self.assertTrue(cv.enable_cp(d)["far_field"]["cp_outputs"])
+
+
 class DensitiesTest(unittest.TestCase):
     def test_parse_and_order(self):
         self.assertEqual(cv.check_densities("15, 20,30,40"), [15.0, 20.0, 30.0, 40.0])
@@ -111,9 +125,11 @@ class DensitiesTest(unittest.TestCase):
             cv.plan([15, 20, 30], max_density=18)  # one density left
 
     def test_tolerances(self):
-        self.assertEqual(cv.check_tolerances(None), {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2})
+        self.assertEqual(cv.check_tolerances(None), {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2, "ar_db": None})
         self.assertEqual(cv.check_tolerances({"f_pct": 1, "s11_db": None})["f_pct"], 1.0)
-        for bad in ({"f_pct": 0}, {"f_pct": -1}, {"nope": 1}, {"s11_db": "x"}):
+        self.assertEqual(cv.check_tolerances({"ar_db": 0.5})["ar_db"], 0.5)
+        self.assertIsNone(cv.check_tolerances({"ar_db": None})["ar_db"], "an explicit None keeps it off")
+        for bad in ({"f_pct": 0}, {"f_pct": -1}, {"nope": 1}, {"s11_db": "x"}, {"ar_db": 0}, {"ar_db": -1}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 cv.check_tolerances(bad)
 
@@ -124,7 +140,7 @@ class StoppingRuleTest(unittest.TestCase):
     def test_all_below_converges(self):
         st = cv.compare(m(2.40e9, -20.0, 6.0), m(2.405e9, -20.5, 6.1), self.tol)
         self.assertAlmostEqual(st["df_pct"], 0.2083, places=3)
-        self.assertEqual(st["ok"], {"f": True, "s11": True, "dmax": True})
+        self.assertEqual(st["ok"], {"f": True, "s11": True, "dmax": True, "ar": None})
         self.assertTrue(st["converged"])
 
     def test_tolerance_edges_are_strict(self):
@@ -154,7 +170,7 @@ class StoppingRuleTest(unittest.TestCase):
         # tiny change), which every tolerance would call converged. It is not comparable instead.
         edge = dict(f=1.0e9, s11=-3.0, no_resonance=True)
         st = cv.compare(m(**edge), m(**edge), self.tol)
-        self.assertEqual(st["ok"], {"f": True, "s11": True, "dmax": True}, "the numbers alone would pass")
+        self.assertEqual(st["ok"], {"f": True, "s11": True, "dmax": True, "ar": None}, "the numbers alone would pass")
         self.assertFalse(st["comparable"])
         self.assertFalse(st["converged"])
         # one run with a real resonance and one without: still not comparable
@@ -179,6 +195,33 @@ class StoppingRuleTest(unittest.TestCase):
     def test_impedance_change_is_reported(self):
         st = cv.compare(m(z=(50, 0)), m(z=(53, 4)), self.tol)
         self.assertAlmostEqual(st["dzin_ohm"], 5.0)
+
+    def test_axial_ratio_is_opt_in(self):
+        st = cv.compare(m(ar=1.0), m(ar=2.0), self.tol)
+        self.assertIsNone(st["ok"]["ar"])
+        self.assertAlmostEqual(st["dar_db"], 1.0, "the change is reported but is not a criterion")
+        self.assertTrue(st["converged"], "without --tol-ar the axial ratio never stops the study")
+        tol = {**self.tol, "ar_db": 0.5}
+        st = cv.compare(m(ar=1.0), m(ar=1.2), tol)
+        self.assertAlmostEqual(st["dar_db"], 0.2)
+        self.assertTrue(st["ok"]["ar"])
+        self.assertTrue(st["converged"])
+        st = cv.compare(m(ar=1.0), m(ar=2.0), tol)
+        self.assertFalse(st["ok"]["ar"])
+        self.assertFalse(st["converged"])
+        st = cv.compare(m(ar=1.0), m(ar=None), tol)
+        self.assertIsNone(st["dar_db"])
+        self.assertFalse(st["ok"]["ar"], "requested but absent is not converged")
+        self.assertFalse(st["converged"])
+
+    def test_axial_ratio_column_and_tolerance_line(self):
+        tol = {**self.tol, "ar_db": 0.5}
+        planned = [15, 20]
+        ms = self.members((15, m(f=2.40e9, ar=1.0)), (20, m(f=2.401e9, ar=1.2)))
+        text = cv.format_table({"members": ms, "convergence": cv.evaluate(ms, planned, tol)})
+        self.assertIn("AR dB", text)
+        self.assertIn("dAR dB", text)
+        self.assertIn("|dAR| < 0.5 dB", text)
 
     def members(self, *specs):
         return [{"density": d, "status": "done", "metrics": x} for d, x in specs]
@@ -220,8 +263,8 @@ class StoppingRuleTest(unittest.TestCase):
         ev = cv.evaluate(self.members((15, m()), (20, m(dmax=None))), [15, 20])
         self.assertEqual(set(ev), {"tolerances", "densities", "max_runs", "steps", "converged", "converged_at",
                                    "done", "reason", "verdict", "next"})
-        self.assertEqual(set(ev["steps"][0]), {"from", "to", "df_pct", "ds11_db", "ddmax_db", "dzin_ohm", "ok",
-                                           "comparable", "converged", "quality"})
+        self.assertEqual(set(ev["steps"][0]), {"from", "to", "df_pct", "ds11_db", "ddmax_db", "dar_db",
+                                           "dzin_ohm", "ok", "comparable", "converged", "quality"})
         json.dumps(ev, allow_nan=False)
 
 
@@ -253,6 +296,12 @@ class MetricsTest(unittest.TestCase):
         # a real resonance, matched or not, inside the band is not flagged
         self.assertFalse(cv.metrics(fake_bundle(2.4e9, s11_db=-25.0))["no_resonance"])
         self.assertFalse(cv.metrics(fake_bundle(2.0e9, s11_db=-6.0, farfield=False))["no_resonance"])
+
+    def test_axial_ratio_of_the_far_field_frequency(self):
+        x = cv.metrics(fake_bundle(2.4e9, dmax=6.5, ar_db=0.9))
+        self.assertEqual(x["ar_db"], 0.9)
+        self.assertEqual(x["ar_boresight_db"], 0.9)
+        self.assertIsNone(cv.metrics(fake_bundle(2.4e9, dmax=6.5))["ar_db"])
 
 
 class FakeSim:
@@ -479,6 +528,16 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.app.convergence(res["study"]["id"])["id"], res["study"]["id"])
         with self.assertRaises(ApiError):
             self.app.convergence("cv-nope")
+
+    def test_axial_ratio_turns_cp_outputs_on_for_the_density_runs(self):
+        res = self.app.submit_convergence({"model": "patch_cv", "params": {}, "threads": 1,
+                                           "densities": [15, 20], "tolerances": {"ar_db": 0.5}, "max_runs": 2})
+        self.assertEqual(res["study"]["convergence"]["tolerances"]["ar_db"], 0.5)
+        job = self.manager.jobs[res["runs"][0]["id"]]
+        snapshot = json.loads((job.dir / "input" / "patch_cv.design.json").read_text(encoding="utf-8"))
+        self.assertIs(snapshot["far_field"]["cp_outputs"], True)
+        saved = json.loads((self.models / "patch_cv.design.json").read_text(encoding="utf-8"))
+        self.assertIsNone((saved.get("far_field") or {}).get("cp_outputs"), "the saved design is untouched")
 
     def test_refusals(self):
         from fairbeam.server import ApiError

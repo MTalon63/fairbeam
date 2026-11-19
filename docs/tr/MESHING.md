@@ -274,7 +274,7 @@ Mesh'in yeterince ince olup olmadığını, sonuçlar değişmeyene kadar incelt
 fairbeam converge my.design.json --densities 15,20,30,40 --max-runs 4 --engine gpu
 ```
 
-Tasarım sırayla her `cells_per_wavelength` değeriyle çalıştırılır (Otomatik modda alan ayarı, eski modda `mesh.cells_per_wavelength`; açıkça verilen hava yoğunluğu bununla ölçeklenir). Rezonansın %0,5'ten, rezonanstaki |S11|'in 1 dB'den, Dmax'ın 0,2 dB'den az değiştiği ilk adımda durur (o adımın daha kaba yoğunluğunda “yakınsadı”). Elle mesh çizgileri kabul edilmez. Çalışmanın her çalıştırması tasarım üzerinde `fairbeam run --mesh-density CELLS` komutudur. Yama anten şablonu (`template: patch`, 2,45 GHz, MUR, −60 dB), GPU motoru, 2026-09-28:
+Tasarım sırayla her `cells_per_wavelength` değeriyle çalıştırılır (Otomatik modda alan ayarı, eski modda `mesh.cells_per_wavelength`; açıkça verilen hava yoğunluğu bununla ölçeklenir). Rezonansın %0,5'ten, rezonanstaki |S11|'in 1 dB'den, Dmax'ın 0,2 dB'den az değiştiği ilk adımda durur (o adımın daha kaba yoğunluğunda “yakınsadı”). `--tol-ar 0,5` eklenince tepe eksenel oranın da değişmemesi gerekir (çalıştırmaların dairesel polarizasyon çıktılarını açar; uzak alan Dmax için zaten hesaplanır). Elle mesh çizgileri kabul edilmez. Çalışmanın her çalıştırması tasarım üzerinde `fairbeam run --mesh-density CELLS` komutudur. Yama anten şablonu (`template: patch`, 2,45 GHz, MUR, −60 dB), GPU motoru, 2026-09-28:
 
 | Hücre/λ | Hücre | Rezonans | Δf | \|S11\| | Δ\|S11\| | Dmax | Zin | Toplam süre |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

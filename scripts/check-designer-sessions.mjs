@@ -117,4 +117,15 @@ liveDialog.undo();assert.equal(dialogChanged(),false,'Undo restores the Cancel s
 liveDialog.redo();assert.equal(dialogChanged(),true,'Redo restores the Discard state');
 assert.equal(liveDialog.rollbackTo(dialogMark),true);assert.equal(dialogChanged(),false,'explicit Discard restores the opening state');
 disposeDialog();liveDialog.dispose();
-console.log('Designer sessions: independent draft/status/history/coalescing/observers/marks/rename/Python/async ownership/disposal pass');
+// A design without far_field (written before the field existed, or hand-written like qfh.json) is
+// normalized on load: the ribbon and the inspector read it directly, but design.py defaults an
+// omitted far_field to enabled. The file copy is normalized too, so the fresh draft is not dirty.
+const legacy=createDesignerSession();
+const bare={...design()};delete bare.far_field;delete bare.mesh;
+legacy.takeFile({...saved(),design:bare});
+assert.deepEqual(legacy.draft.far_field,{enabled:true},'an omitted far_field is defaulted on load');
+assert.deepEqual(legacy.draft.mesh,{mode:'auto',cells_per_wavelength:20,refine_features:false},'an omitted mesh takes the build defaults');
+assert.deepEqual(legacy.file().design,legacy.draft,'the file copy matches the draft');
+assert.equal(legacy.dirty(),false,'the defaulted draft is not an unsaved edit');
+legacy.dispose();
+console.log('Designer sessions: independent draft/status/history/coalescing/observers/marks/rename/Python/async ownership/disposal/far-field default pass');

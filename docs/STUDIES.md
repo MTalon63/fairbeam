@@ -63,10 +63,11 @@ fairbeam converge python/models/my_patch.design.json --densities 15,20,30,40 --m
 
 With a `.design.json` and no `--param`, the design runs at each automatic-mesh density in turn
 (`mesh.cells_per_wavelength`; in the Auto mode its `cells_per_wavelength` override). After each run
-it compares the resonance (S11 minimum), |S11| there, Dmax (with a far field) and the input
-impedance with the previous run, and stops at the first step whose changes are all strictly below
-`--tol-f` (0.5 %), `--tol-s11` (1 dB) and `--tol-dmax` (0.2 dB), or after `--max-runs` (4) runs. The
-code is in `python/fairbeam/convergence.py`; the options are in [CLI.md](CLI.md). Output:
+it compares the resonance (S11 minimum), |S11| there, Dmax (with a far field), the input impedance
+and, with the opt-in `--tol-ar`, the peak axial ratio with the previous run, and stops at the first
+step whose changes are all strictly below `--tol-f` (0.5 %), `--tol-s11` (1 dB), `--tol-dmax`
+(0.2 dB) and, when given, `--tol-ar`, or after `--max-runs` (4) runs. The code is in
+`python/fairbeam/convergence.py`; the options are in [CLI.md](CLI.md). Output:
 
 ```
  cells/λ      cells   f_res GHz     df %   S11 dB    dS11  Dmax dBi   dD dB           Zin ohm   time s  ok
@@ -96,9 +97,9 @@ The study file has `kind: "mesh-convergence"`; `axes` lists the densities that r
                  "matched": true, "cells": 55104, "timesteps": 14016, "wall_time_s": 1.1}, "summary": {"...": "..."}}
   ],
   "convergence": {
-    "tolerances": {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2}, "densities": [15, 20, 30], "max_runs": 3,
-    "steps": [{"from": 15, "to": 20, "df_pct": 0.173, "ds11_db": 1.02, "ddmax_db": -0.003, "dzin_ohm": 0.14,
-               "ok": {"f": true, "s11": false, "dmax": true}, "converged": false}],
+    "tolerances": {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2, "ar_db": null}, "densities": [15, 20, 30], "max_runs": 3,
+    "steps": [{"from": 15, "to": 20, "df_pct": 0.173, "ds11_db": 1.02, "ddmax_db": -0.003, "dar_db": 0.02, "dzin_ohm": 0.14,
+               "ok": {"f": true, "s11": false, "dmax": true, "ar": null}, "converged": false}],
     "converged": true, "converged_at": 20, "done": true, "reason": "converged",
     "verdict": "converged at 20 cells/λ", "next": null
   }
@@ -129,11 +130,14 @@ Between successive refinements it reports:
   or the global S11 minimum if nothing is matched
 - the change of **Dmax** at the far-field frequency closest to that resonance
 - the change of **S11 depth** at that resonance, including studies started with `--param`
+- with the opt-in `--tol-ar`, the change of the **peak axial ratio** at that same far-field frequency
 
 A step counts as converged when |Δf| < `--tol-f` (default 0.5 %), |ΔS11| < `--tol-s11`
-(default 1 dB) and available |ΔDmax| < `--tol-d` (default 0.1 dB). Both runs must meet the
+(default 1 dB) and available |ΔDmax| < `--tol-d` (default 0.1 dB), plus, when `--tol-ar` is given,
+|ΔAR| < `--tol-ar`. Both runs must meet the
 energy-decay criterion and have no reported unresolved fine features. Missing S11 depth does not
-pass. The study is converged when its **last** step is. These checks do not replace two further
+pass, and an axial ratio that was requested but is missing does not pass. The study is converged
+when its **last** step is. These checks do not replace two further
 local refinements when the port cells stay fixed as the global mesh parameter changes.
 
 Historical output below predates the S11-depth guard; the current table also shows `dS11 dB`:

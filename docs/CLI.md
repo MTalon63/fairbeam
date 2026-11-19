@@ -193,6 +193,7 @@ Options for `converge` with a design file (it also takes the `sweep` options `--
 | `--tol-f PCT` | `0.5` | Resonance tolerance in % |
 | `--tol-s11 DB` | `1` | Tolerance of \|S11\| at the resonance in dB |
 | `--tol-dmax DB` | `0.2` | Dmax tolerance in dB (ignored without a far field). `--tol-d` is the same option; with `--param` its default stays 0.1 |
+| `--tol-ar DB` | off | Opt-in: also require the peak axial ratio to change by less than this many dB. Turns `far_field.cp_outputs` on for every density (a circularly polarized design). Designs only, not `--param` |
 | `--max-runs N` | `4` | Stop after N runs |
 | `--max-density C` | | Leave out densities above C |
 
@@ -200,6 +201,11 @@ A step converges when every change is strictly below its tolerance; the study st
 such step and prints the table and the verdict ("converged at 30 cells/λ", the coarser density of
 that step, or "not converged: refine further or check the model"). The exit code is 0 for either
 verdict and 1 when a run failed.
+
+`--tol-ar` is opt-in and only meaningful for a circularly polarized design: it also compares the
+peak axial ratio (the `cp.peak.axial_ratio_db` the far field already carries for Dmax, so it adds no
+solver time) and prints an `AR dB` / `dAR dB` column and `|dAR| < … dB` in the tolerance line.
+Requested but missing on a run (no cp outputs) counts as not converged.
 
 Optional network criteria work with both design densities and `--param` studies. They are added
 to the existing resonance/Dmax checks (and the design path's S11 check); leaving them out preserves

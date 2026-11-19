@@ -12,7 +12,7 @@ import { attachDesignOptimize, prepareDesignSubmission } from "../runner/designR
 import { engine, health, jobs, refreshRuns, runSettings, setEngine } from "../runner/store";
 import type { Bundle } from "../types";
 import {
-  DEFAULT_DENSITIES, DEFAULT_MAX_RUNS, DEFAULT_TOL, type ConvergenceStudy, currentDensity, designAtDensity,
+  DEFAULT_AR_DB, DEFAULT_DENSITIES, DEFAULT_MAX_RUNS, DEFAULT_TOL, type ConvergenceStudy, currentDensity, designAtDensity,
   longStudyWarning, meshBlocker, parseDensities, planDensities, plotPoints, reportRows, series, setDensity, totalEstimate, verdictDetail,
 } from "./convergence";
 import { PreflightNote } from "./PreflightNote";
@@ -31,6 +31,8 @@ const [densText, setDensText] = createSignal(DEFAULT_DENSITIES.join(", "));
 const [tolF, setTolF] = createSignal(String(DEFAULT_TOL.f_pct));
 const [tolS, setTolS] = createSignal(String(DEFAULT_TOL.s11_db));
 const [tolD, setTolD] = createSignal(String(DEFAULT_TOL.dmax_db));
+const [arOn, setArOn] = createSignal(false);
+const [tolAr, setTolAr] = createSignal(String(DEFAULT_AR_DB));
 const [maxRuns, setMaxRuns] = createSignal(String(DEFAULT_MAX_RUNS));
 
 /** Open the setup, or the report of a study (the navigation tree's "Convergence report"). */
@@ -63,7 +65,8 @@ function Content(props: { studyId: string | null }) {
   const network = createMemo(() => networkRequest(networkEnabled(), networkFrequency(), networkRows(), ports()));
   const parsed = createMemo(() => parseDensities(densText()));
   const runs = () => Number(maxRuns());
-  const tol = () => ({ f_pct: Number(tolF()), s11_db: Number(tolS()), dmax_db: Number(tolD()) });
+  const tol = () => ({ f_pct: Number(tolF()), s11_db: Number(tolS()), dmax_db: Number(tolD()),
+                       ...(arOn() ? { ar_db: Number(tolAr()) } : {}) });
   const toleranceBad = (text: string) => !Number.isFinite(Number(text)) || Number(text) <= 0;
   const runsBad = () => !Number.isInteger(runs()) || runs() < 2 || runs() > 12;
   const planned = () => planDensities(parsed().values, runs());
@@ -200,6 +203,13 @@ function Content(props: { studyId: string | null }) {
               <label class="rp-mini">{t("conv.tol.dmax")}
                 <NumberField class="rp-input mono" aria-label={t("conv.tol.dmax.aria")} step="any" value={tolD()} aria-invalid={toleranceBad(tolD())} aria-describedby={toleranceBad(tolD()) ? "cv-setup-error" : undefined} onInput={(e) => setTolD(e.currentTarget.value)} />
               </label>
+              <label class="rp-mini cv-wide" title={t("conv.tol.ar.title")}>
+                <span class="cv-ar-label">
+                  <input type="checkbox" checked={arOn()} aria-label={t("conv.tol.ar.enable")} onChange={(e) => setArOn(e.currentTarget.checked)} />
+                  {t("conv.tol.ar")}
+                </span>
+                <input autocomplete="off" class="rp-input mono" aria-label={t("conv.tol.ar.aria")} inputmode="decimal" disabled={!arOn()} value={tolAr()} onInput={(e) => setTolAr(e.currentTarget.value)} />
+              </label>
               <label class="rp-mini" title={t("conv.maxRuns.title")}>{t("conv.maxRuns")}
                 <NumberField class="rp-input mono" aria-label={t("conv.maxRuns")} min="2" max="12" step="1" value={maxRuns()} aria-invalid={runsBad()} aria-describedby={runsBad() ? "cv-setup-error" : undefined} onInput={(e) => setMaxRuns(e.currentTarget.value)} />
               </label>
@@ -255,7 +265,9 @@ function Content(props: { studyId: string | null }) {
                     <table class="table cv-table" aria-label={t("conv.results")}>
                       <thead><tr>
                         <th class="num">{t("conv.col.density")}</th><th class="num">{t("conv.col.cells")}</th><th class="num">{t("conv.col.fres")}</th><th class="num">Δf (%)</th><th class="num">|S11| (dB)</th><th class="num">Δ (dB)</th>
-                        <th class="num">Dmax (dBi)</th><th class="num">Δ (dB)</th><th class="num">Zin (Ω)</th><th class="num">{t("conv.col.time")}</th><th>{t("conv.col.within")}</th>
+                        <th class="num">Dmax (dBi)</th><th class="num">Δ (dB)</th>
+                        <Show when={s().convergence.tolerances.ar_db != null}><th class="num">{t("conv.col.ar")}</th><th class="num">Δ (dB)</th></Show>
+                        <th class="num">Zin (Ω)</th><th class="num">{t("conv.col.time")}</th><th>{t("conv.col.within")}</th>
                       </tr></thead>
                       <tbody>
                         <For each={reportRows(s())}>{(r) => (
@@ -264,6 +276,7 @@ function Content(props: { studyId: string | null }) {
                             <td class="num">{cellNum(r.fGhz, 4)}</td><td class="num">{cellNum(r.df, 3, true)}</td>
                             <td class="num">{cellNum(r.s11, 2)}</td><td class="num">{cellNum(r.ds11, 2, true)}</td>
                             <td class="num">{cellNum(r.dmax, 2)}</td><td class="num">{cellNum(r.ddmax, 3, true)}</td>
+                            <Show when={s().convergence.tolerances.ar_db != null}><td class="num">{cellNum(r.ar, 2)}</td><td class="num">{cellNum(r.dar, 2, true)}</td></Show>
                             <td class="num">{r.zin}</td><td class="num">{r.time != null ? durationText(r.time) : "—"}</td>
                             <td title={r.notComparable ? t("conv.notComparable.title") : undefined}>{r.status !== "done" ? r.status : r.notComparable ? t("conv.notComparable") : r.ok == null ? "" : r.ok ? t("conv.yes") : t("conv.no")}</td>
                           </tr>
@@ -275,9 +288,11 @@ function Content(props: { studyId: string | null }) {
                     <Plot study={s()} k="f_res" label={t("conv.plot.fres")} nd={4} />
                     <Plot study={s()} k="s11_db" label={t("conv.plot.s11")} nd={2} />
                     <Plot study={s()} k="dmax_dbi" label="Dmax (dBi)" nd={2} />
+                    <Show when={s().convergence.tolerances.ar_db != null}><Plot study={s()} k="ar_db" label={t("conv.plot.ar")} nd={2} /></Show>
                   </div>
                   <p class="note">
                     {t("conv.tolerances", { f: fmt.num(s().convergence.tolerances.f_pct, 4), s11: fmt.num(s().convergence.tolerances.s11_db, 4), dmax: fmt.num(s().convergence.tolerances.dmax_db, 4) })}
+                    <Show when={s().convergence.tolerances.ar_db != null}>{" " + t("conv.tolerances.ar", { ar: fmt.num(s().convergence.tolerances.ar_db ?? 0, 4) })}</Show>
                   </p>
                   <NetworkReport study={s()} />
                 </Show>
@@ -313,7 +328,7 @@ function Content(props: { studyId: string | null }) {
 }
 
 /** A small line plot of one quantity against the density, the converged density marked. */
-function Plot(props: { study: ConvergenceStudy; k: "f_res" | "s11_db" | "dmax_dbi"; label: string; nd: number }) {
+function Plot(props: { study: ConvergenceStudy; k: "f_res" | "s11_db" | "dmax_dbi" | "ar_db"; label: string; nd: number }) {
   const W = 180, H = 72;
   const pts = () => series(props.study, props.k);
   const xy = () => plotPoints(pts(), W, H);

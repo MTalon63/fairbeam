@@ -33,7 +33,7 @@ from .legacy import current_schema, is_legacy_schema
 DENSITY_KEY = "mesh.cells_per_wavelength"
 KIND = "mesh-convergence"
 DEFAULT_DENSITIES = (15, 20, 30, 40)
-DEFAULT_TOL = {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2}
+DEFAULT_TOL = {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2, "ar_db": None}  # ar_db: opt-in, None off
 DEFAULT_MAX_RUNS = 4
 MAX_DENSITIES = 12
 MIN_DENSITY, MAX_DENSITY = 4.0, 200.0
@@ -70,13 +70,25 @@ def _number(v):
         return None
 
 
-def with_density(design: dict, cpw: float) -> dict:
+def enable_cp(design: dict) -> dict:
+    """A copy of the design with circular-polarisation outputs on. The axial-ratio criterion
+    (``--tol-ar``) needs ``far_field.circular``, exactly as a polarization optimizer goal does."""
+    d = copy.deepcopy(design)
+    ff = d.setdefault("far_field", {})
+    if not isinstance(ff, dict):
+        raise ValueError("far_field must be an object")
+    ff["circular"] = True
+    return d
+
+
+def with_density(design: dict, cpw: float, *, cp_outputs: bool = False) -> dict:
     """A copy of the design meshed at ``cpw`` cells per wavelength (at f max).
 
     ``auto`` mode sets ``mesh.cells_per_wavelength``; ``design`` mode sets the
     ``mesh.overrides.cells_per_wavelength`` override. An explicit air density is scaled by the same
     factor when both are plain numbers (and kept at most ``cpw``), else dropped so it follows the
-    feature density. Manual mesh lines raise ValueError.
+    feature density. ``cp_outputs`` also turns the run's circular-polarisation outputs on (the
+    axial-ratio criterion). Manual mesh lines raise ValueError.
     """
     why = unsupported(design)
     if why:
@@ -84,7 +96,7 @@ def with_density(design: dict, cpw: float) -> dict:
     cpw = float(cpw)
     if not cpw > 0:
         raise ValueError("cells per wavelength must be > 0")
-    d = copy.deepcopy(design)
+    d = enable_cp(design) if cp_outputs else copy.deepcopy(design)
     m = d.setdefault("mesh", {})
     holder = m.setdefault("overrides", {}) if mesh_mode(d) == "design" else m
     if not isinstance(holder, dict):
@@ -103,14 +115,14 @@ def with_density(design: dict, cpw: float) -> dict:
     return d
 
 
-def module_at_density(module, cpw: float):
+def module_at_density(module, cpw: float, *, cp_outputs: bool = False):
     """The design module (``fairbeam.design.module_for``) rebuilt at another mesh density."""
     from .design import module_for
 
     design = getattr(module, "DESIGN", None)
     if design is None:
         raise ValueError("--mesh-density needs a design file (.design.json); a Python model sets its own mesh")
-    return module_for(with_density(design, cpw), name=getattr(module, "__name__", None))
+    return module_for(with_density(design, cpw, cp_outputs=cp_outputs), name=getattr(module, "__name__", None))
 
 
 # ---------------------------------------------------------------------------- densities and tolerances
@@ -208,7 +220,9 @@ def metrics(bundle: dict, *, network_criteria: dict | None = None) -> dict:
 
     s = summarize(bundle)
     out = {"f_res": None, "s11_db": None, "zin_re": None, "zin_im": None, "matched": None, "no_resonance": False,
-           "dmax_dbi": s.get("dmax_dbi"), "cells": s.get("cells"), "timesteps": s.get("timesteps"),
+           "dmax_dbi": s.get("dmax_dbi"), "ar_db": s.get("axial_ratio_db"),
+           "ar_boresight_db": s.get("axial_ratio_boresight_db"), "cells": s.get("cells"),
+           "timesteps": s.get("timesteps"),
            "wall_time_s": s.get("wall_time_s"), "solver_converged": s.get("converged")}
     out["fine_features_resolved"] = s.get("fine_features_resolved")
     if network_criteria:
@@ -240,26 +254,34 @@ def metrics(bundle: dict, *, network_criteria: dict | None = None) -> dict:
 
 def compare(a: dict, b: dict, tol: dict) -> dict:
     """One refinement step from metrics ``a`` (coarser) to ``b`` (finer). A step converges when
-    every change is strictly below its tolerance; Dmax counts only when both runs have it. A step
-    with a run that has no resonance in the band (``no_resonance``) is not comparable: its
-    "resonance" is the band edge, so no tolerance can say anything and it never converges."""
+    every change is strictly below its tolerance; Dmax counts only when both runs have it. The axial
+    ratio is opt-in (``ar_db`` in ``tol``): when requested, a run without circular-polarisation
+    outputs is not converged. A step with a run that has no resonance in the band
+    (``no_resonance``) is not comparable: its "resonance" is the band edge, so no tolerance can
+    say anything and it never converges."""
     fa, fb = a.get("f_res"), b.get("f_res")
     df = 100.0 * (fb - fa) / fa if fa and fb else None
     ds = (b["s11_db"] - a["s11_db"]) if a.get("s11_db") is not None and b.get("s11_db") is not None else None
     dd = (b["dmax_dbi"] - a["dmax_dbi"]) if a.get("dmax_dbi") is not None and b.get("dmax_dbi") is not None else None
+    dar = (b["ar_db"] - a["ar_db"]) if a.get("ar_db") is not None and b.get("ar_db") is not None else None
     dz = None
     if None not in (a.get("zin_re"), a.get("zin_im"), b.get("zin_re"), b.get("zin_im")):
         dz = float(abs(complex(b["zin_re"], b["zin_im"]) - complex(a["zin_re"], a["zin_im"])))
+    # the axial ratio is opt-in (--tol-ar): only then does a change above the tolerance stop the study.
+    # Requested but absent (a run without circular-polarisation outputs) is not converged either.
+    ar_tol = tol.get("ar_db")
     ok = {"f": df is not None and abs(df) < tol["f_pct"],
           "s11": ds is not None and abs(ds) < tol["s11_db"],
-          "dmax": None if dd is None else abs(dd) < tol["dmax_db"]}
+          "dmax": None if dd is None else abs(dd) < tol["dmax_db"],
+          "ar": None if ar_tol is None else (dar is not None and abs(dar) < ar_tol)}
     r = lambda x, n: None if x is None else round(float(x), n)  # noqa: E731
     comparable = not (a.get("no_resonance") or b.get("no_resonance"))
     quality = {"energy": all(m.get("solver_converged") is True for m in (a, b)),
                "local_mesh": all(m.get("fine_features_resolved") is not False for m in (a, b))}
-    step = {"df_pct": r(df, 4), "ds11_db": r(ds, 4), "ddmax_db": r(dd, 4), "dzin_ohm": r(dz, 3),
-            "ok": ok, "comparable": comparable, "quality": quality,
-            "converged": comparable and all(quality.values()) and bool(ok["f"] and ok["s11"] and ok["dmax"] is not False)}
+    step = {"df_pct": r(df, 4), "ds11_db": r(ds, 4), "ddmax_db": r(dd, 4), "dar_db": r(dar, 4),
+            "dzin_ohm": r(dz, 3), "ok": ok, "comparable": comparable, "quality": quality,
+            "converged": comparable and all(quality.values())
+                         and bool(ok["f"] and ok["s11"] and ok["dmax"] is not False and ok["ar"] is not False)}
     if "planar_response" in a or "planar_response" in b:
         from .planar import compare_responses
         try:
@@ -336,8 +358,10 @@ def evaluate(members: list[dict], planned: list[float], tol: dict | None = None,
 def format_table(study: dict) -> str:
     """The study as a text table (CLI output, docs)."""
     conv = study["convergence"]
+    ar = conv["tolerances"].get("ar_db") is not None
     rows = [f"{'cells/λ':>8}  {'cells':>9}  {'f_res GHz':>10}  {'df %':>7}  {'S11 dB':>7}  {'dS11':>6}  "
-            f"{'Dmax dBi':>8}  {'dD dB':>6}  {'Zin ohm':>16}  {'time s':>7}  ok"]
+            f"{'Dmax dBi':>8}  {'dD dB':>6}  " + (f"{'AR dB':>7}  {'dAR dB':>7}  " if ar else "") +
+            f"{'Zin ohm':>16}  {'time s':>7}  ok"]
     for i, m in enumerate(study["members"]):
         x = m.get("metrics") or {}
         st = conv["steps"][i - 1] if 0 < i <= len(conv["steps"]) else {}
@@ -345,12 +369,16 @@ def format_table(study: dict) -> str:
         ok = "" if not st else ("yes" if st["converged"] else "n/a" if st.get("comparable") is False else "no")
         if m.get("status", "done") != "done":
             ok = m["status"]
+        ar_cells = f"{_f(x.get('ar_db'), 7, 2)}  {_f(st.get('dar_db'), 7, 3)}  " if ar else ""
         rows.append(f"{m['density']:>8g}  {x.get('cells') or 0:>9}  {_f(x.get('f_res'), 10, 4, 1e-9)}  "
                     f"{_f(st.get('df_pct'), 7, 3)}  {_f(x.get('s11_db'), 7, 2)}  {_f(st.get('ds11_db'), 6, 2)}  "
-                    f"{_f(x.get('dmax_dbi'), 8, 2)}  {_f(st.get('ddmax_db'), 6, 3)}  {zin:>16}  "
+                    f"{_f(x.get('dmax_dbi'), 8, 2)}  {_f(st.get('ddmax_db'), 6, 3)}  {ar_cells}{zin:>16}  "
                     f"{_f(x.get('wall_time_s'), 7, 1)}  {ok}")
     t = conv["tolerances"]
-    rows.append(f"tolerances: |df| < {t['f_pct']:g} %, |dS11| < {t['s11_db']:g} dB, |dDmax| < {t['dmax_db']:g} dB")
+    line = f"tolerances: |df| < {t['f_pct']:g} %, |dS11| < {t['s11_db']:g} dB, |dDmax| < {t['dmax_db']:g} dB"
+    if ar:
+        line += f", |dAR| < {t['ar_db']:g} dB"
+    rows.append(line)
     rows.append(conv["verdict"])
     from .study import format_network_steps
     rows.extend(format_network_steps(conv["steps"]))
@@ -416,10 +444,11 @@ def run_convergence(design_path: str, *, densities=DEFAULT_DENSITIES, tol: dict 
         raise ValueError(why)
     planned = plan(densities, max_runs, max_density)
     tol = check_tolerances(tol)
+    cp_outputs = tol.get("ar_db") is not None  # the axial-ratio criterion needs cp outputs on
     fixed = dict(fixed or {})
     values = resolve_params(module.PARAMS, fixed)  # validated before any solver time is spent
     for d in planned:  # every density must build (a too-fine mesh can exceed the cell limit)
-        with_density(design, d)
+        with_density(design, d, cp_outputs=cp_outputs)
     name = name or _slug(module.MODEL["id"] + "--mesh-convergence", {})
     study = new_study(name=name, model={"id": module.MODEL["id"], "name": module.MODEL["name"]},
                       planned=planned, tol=tol, design_path=design_path,
@@ -432,7 +461,7 @@ def run_convergence(design_path: str, *, densities=DEFAULT_DENSITIES, tol: dict 
     spath = Path(out) / "studies" / f"{name}.json"
     t_start = time.time()
     for i, d in enumerate(planned, 1):
-        mod = module_at_density(module, d)
+        mod = module_at_density(module, d, cp_outputs=cp_outputs)
         params = [p.describe(values[p.key]) for p in mod.PARAMS]
         slug = _slug(module.MODEL["id"], {**fixed, "cpw": f"{d:g}"})
         label = f"{module.MODEL['name']} · {density_text(d)}"

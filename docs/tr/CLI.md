@@ -156,10 +156,13 @@ Tasarım dosyasıyla `converge` seçenekleri (ayrıca `sweep` seçeneklerini kab
 | `--tol-f PCT` | `0.5` | % cinsinden rezonans toleransı |
 | `--tol-s11 DB` | `1` | Rezonansta \|S11\| toleransı, dB |
 | `--tol-dmax DB` | `0.2` | Dmax toleransı, dB (uzak alan yoksa yok sayılır). `--tol-d` aynı seçenektir; `--param` ile varsayılanı 0,1 kalır |
+| `--tol-ar DB` | Kapalı | İsteğe bağlı: tepe eksenel oranın da bu kadar dB'den az değişmesini ister. Her yoğunluk için `far_field.cp_outputs` açar (dairesel polarize tasarım). Yalnızca tasarımlar, `--param` değil |
 | `--max-runs N` | `4` | N çalıştırmadan sonra durur |
 | `--max-density C` | | C üzerindeki yoğunlukları dışarıda bırakır |
 
 Tüm değişimler toleranslarından kesin olarak küçükse adım yakınsamıştır. İnceleme ilk böyle adımda durur, tabloyu ve kararı yazdırır ("converged at 30 cells/λ", o adımın daha kaba yoğunluğu veya "not converged: refine further or check the model"). Her iki kararda çıkış kodu 0, çalıştırma başarısızsa 1'dir.
+
+`--tol-ar` isteğe bağlıdır ve yalnızca dairesel polarize bir tasarımda anlamlıdır: tepe eksenel oranı da karşılaştırır (uzak alanın Dmax için zaten taşıdığı `cp.peak.axial_ratio_db`; ek çözücü süresi getirmez) ve tabloya `AR dB` / `dAR dB` sütununu, tolerans satırına `|dAR| < … dB` ifadesini ekler. İstenip de bir çalıştırmada bulunmayan eksenel oran (cp çıktısı yok) yakınsamış sayılmaz.
 
 İsteğe bağlı mesh ölçütleri hem tasarım yoğunluğu hem `--param` incelemeleriyle çalışır. Mevcut rezonans/Dmax kontrollerine (tasarım yolunda S11'e de) eklenir; belirtilmezse mevcut davranış korunur. Bu seçenekler Tasarımcı'nın yakınsama penceresini değil CLI incelemesini etkiler.
 

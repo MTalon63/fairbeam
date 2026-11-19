@@ -1742,7 +1742,12 @@ class App:
         study_id = "cv-" + time.strftime("%Y%m%d-%H%M%S") + "-" + os.urandom(2).hex()
         model = {"id": (m.get("model") or {}).get("id") or m["key"], "name": (m.get("model") or {}).get("name") or m["key"]}
         name = st["label"] or f"{model['name']} · mesh convergence"
-        job_kw = {"model": m["key"], "model_id": (m.get("model") or {}).get("id"), "model_path": m["path"], "design_input": m.get("_queued_design"),
+        design_input = m.get("_queued_design")
+        if tol.get("ar_db") is not None and design_input:
+            # the axial-ratio criterion needs circular-polarisation outputs; the saved design stays
+            # untouched, every density of this study runs this copy instead
+            design_input = json.dumps(cv.enable_cp(json.loads(design_input)))
+        job_kw = {"model": m["key"], "model_id": (m.get("model") or {}).get("id"), "model_path": m["path"], "design_input": design_input,
                   "params": resolved, "overrides": overrides, "threads": st["threads"], "engine": st["engine"],
                   "end_criteria_db": st["end_criteria_db"], "label": st["label"], "points": st["points"],
                   "name": st["name"]}

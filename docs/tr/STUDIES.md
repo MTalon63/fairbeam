@@ -47,7 +47,7 @@ fairbeam sweep python/models/inset_patch.py --param inset=6,8,10 --param feed_w=
 fairbeam converge python/models/my_patch.design.json --densities 15,20,30,40 --max-runs 4 --engine gpu
 ```
 
-`.design.json` ile `--param` verilmezse tasarım her otomatik mesh yoğunluğunda sırayla çalışır (`mesh.cells_per_wavelength`; Otomatik modda `cells_per_wavelength` alan ayarı). Her çalıştırmadan sonra rezonansı (S11 minimumu), oradaki |S11|'i, Dmax'ı (uzak alan varsa) ve giriş empedansını önceki çalıştırmayla karşılaştırır. Değişikliklerin tümünün `--tol-f` (%0,5), `--tol-s11` (1 dB) ve `--tol-dmax` (0,2 dB) değerlerinin kesin olarak altında kaldığı ilk adımda veya `--max-runs` (4) çalıştırmadan sonra durur. Kod `python/fairbeam/convergence.py`, seçenekler [CLI.md](CLI.md) içindedir. Çıktı:
+`.design.json` ile `--param` verilmezse tasarım her otomatik mesh yoğunluğunda sırayla çalışır (`mesh.cells_per_wavelength`; Otomatik modda `cells_per_wavelength` alan ayarı). Her çalıştırmadan sonra rezonansı (S11 minimumu), oradaki |S11|'i, Dmax'ı (uzak alan varsa), giriş empedansını ve isteğe bağlı `--tol-ar` verildiğinde tepe eksenel oranı önceki çalıştırmayla karşılaştırır. Değişikliklerin tümünün `--tol-f` (%0,5), `--tol-s11` (1 dB), `--tol-dmax` (0,2 dB) ve verildiğinde `--tol-ar` değerlerinin kesin olarak altında kaldığı ilk adımda veya `--max-runs` (4) çalıştırmadan sonra durur. Kod `python/fairbeam/convergence.py`, seçenekler [CLI.md](CLI.md) içindedir. Çıktı:
 
 ```
  cells/λ      cells   f_res GHz     df %   S11 dB    dS11  Dmax dBi   dD dB           Zin ohm   time s  ok
@@ -73,9 +73,9 @@ Tasarımcının Mesh yakınsaması… penceresi aynı çalışmayı çalıştır
                  "matched": true, "cells": 55104, "timesteps": 14016, "wall_time_s": 1.1}, "summary": {"...": "..."}}
   ],
   "convergence": {
-    "tolerances": {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2}, "densities": [15, 20, 30], "max_runs": 3,
-    "steps": [{"from": 15, "to": 20, "df_pct": 0.173, "ds11_db": 1.02, "ddmax_db": -0.003, "dzin_ohm": 0.14,
-               "ok": {"f": true, "s11": false, "dmax": true}, "converged": false}],
+    "tolerances": {"f_pct": 0.5, "s11_db": 1.0, "dmax_db": 0.2, "ar_db": null}, "densities": [15, 20, 30], "max_runs": 3,
+    "steps": [{"from": 15, "to": 20, "df_pct": 0.173, "ds11_db": 1.02, "ddmax_db": -0.003, "dar_db": 0.02, "dzin_ohm": 0.14,
+               "ok": {"f": true, "s11": false, "dmax": true, "ar": null}, "converged": false}],
     "converged": true, "converged_at": 20, "done": true, "reason": "converged",
     "verdict": "converged at 20 cells/λ", "next": null
   }
@@ -104,9 +104,11 @@ Bu, `sweep` komutunun tam bir eksenli ve değerlerini **kabadan inceye** sırala
 - `--param` ile başlatılan çalışmalar dahil, bu rezonanstaki **S11 derinliği** değişimi
 
 |Δf| < `--tol-f` (varsayılan %0,5), |ΔS11| < `--tol-s11` (varsayılan 1 dB) ve varsa
-|ΔDmax| < `--tol-d` (varsayılan 0,1 dB) olduğunda adım yakınsamış sayılır. İki çalıştırma da enerji
+|ΔDmax| < `--tol-d` (varsayılan 0,1 dB), ayrıca `--tol-ar` verildiğinde |ΔAR| < `--tol-ar`
+olduğunda adım yakınsamış sayılır. İki koşu da enerji
 sönümü ölçütünü sağlamalı; hiçbirinde yetersiz ince ayrıntı bildirilmemelidir. S11 derinliği
-eksikse denetim geçmez. Çalışma, **son** adımı yakınsamışsa yakınsamıştır. Global mesh parametresi
+eksikse denetim geçmez; istenen eksenel oran eksikse de geçmez. Çalışma, **son** adımı yakınsamışsa
+yakınsamıştır. Global mesh parametresi
 değişirken port hücreleri sabit kalıyorsa, bu denetimler iki ek yerel inceltmenin yerini tutmaz.
 
 Aşağıdaki tarihsel çıktı S11 derinliği denetiminden öncedir; güncel tablo ayrıca `dS11 dB` gösterir:

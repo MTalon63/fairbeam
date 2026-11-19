@@ -219,6 +219,7 @@ export interface Design {
     /** "sheet" (default): metal bricks much thinner than the mesh are built as zero-thickness sheets */
     thin_metal?: "sheet" | "volume";
   };
+  /** optional on disk: design.py builds `d.get("far_field", {"enabled": true})`, so an older or hand-written design may omit it; ensureDesign() (designDefaults.ts) fills it (and `mesh`) when the draft is loaded */
   far_field: { enabled: boolean; circular?: boolean; complex_fields?: boolean; frequencies?: Expr[]; /** Angular steps in degrees; defaults 3 and 5. */ theta_step?: Expr; phi_step?: Expr; phase_center?: [Expr, Expr, Expr]; /** which NF2FF box faces record (x-, x+, y-, y+, z-, z+); omitted: all */ faces?: boolean[] };
   parameter_sweep?: ParameterSweepDefinition;
   /** The opening view: where the 3D view's camera is and the point it looks at when the design opens (mm).

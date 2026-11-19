@@ -60,8 +60,8 @@ eq(longStudyWarning([300, 601]), null, "an estimate that reads 10 min is not cal
 ok(longStudyWarning([300, 700])?.includes("12"), "warning above 10 minutes quotes the estimate (700 s = 12 min)");
 
 // 2. report
-const member = (density, f, s11, dmax, extra = {}) => ({ density, status: "done", file: `p-${density}.json`,
-  metrics: { f_res: f, s11_db: s11, dmax_dbi: dmax, zin_re: 48.2, zin_im: -3.4, cells: density ** 3, wall_time_s: 12 }, ...extra });
+const member = (density, f, s11, dmax, extra = {}, ar = null) => ({ density, status: "done", file: `p-${density}.json`,
+  metrics: { f_res: f, s11_db: s11, dmax_dbi: dmax, zin_re: 48.2, zin_im: -3.4, cells: density ** 3, wall_time_s: 12, ar_db: ar }, ...extra });
 const study = {
   id: "cv-1", name: "Patch · mesh convergence", kind: "mesh-convergence",
   members: [member(15, 2.30e9, -18, 6.1), member(20, 2.36e9, -22, 6.3), member(30, 2.39e9, -24, 6.35), member(40, 2.392e9, -24.4, 6.36)],
@@ -81,6 +81,25 @@ eq(series(study, "f_res").map((p) => p.y), [2.3, 2.36, 2.39, 2.392], "resonance 
 const pts = plotPoints(series(study, "dmax_dbi"), 180, 72);
 ok(pts.every((p) => p.x >= 0 && p.x <= 180 && p.y >= 0 && p.y <= 72), "plot points stay inside the box");
 eq(plotPoints([{ x: 1, y: 5 }], 100, 50)[0].x, 50, "a single point is centred");
+
+// 2b. the opt-in axial-ratio criterion: the peak AR rides beside Dmax, and the verdict names it
+const arStep = (from, to, arOk, dar) => ({ from, to, df_pct: 0.05, ds11_db: -0.1, ddmax_db: 0.01, dar_db: dar,
+  dzin_ohm: 0.1, ok: { f: true, s11: true, dmax: true, ar: arOk }, comparable: true,
+  quality: { energy: true, local_mesh: true }, converged: arOk });
+const arStudy = {
+  ...study,
+  members: [member(15, 2.30e9, -18, 6.1, {}, 1.0), member(20, 2.36e9, -22, 6.3, {}, 1.6), member(30, 2.39e9, -24, 6.35, {}, 1.7)],
+  convergence: { ...study.convergence, converged: false, converged_at: null, reason: "exhausted",
+    verdict: "not converged: refine further or check the model",
+    tolerances: { f_pct: 0.5, s11_db: 1, dmax_db: 0.2, ar_db: 0.5 },
+    steps: [arStep(15, 20, true, 0.1), arStep(20, 30, false, 0.7)] },
+};
+const arRows = reportRows(arStudy);
+eq(arRows.map((r) => r.ar), [1.0, 1.6, 1.7], "AR rows carry the peak axial ratio");
+eq(arRows[1].dar, 0.1, "an AR row carries the change from the previous run");
+eq(series(arStudy, "ar_db").map((p) => p.y), [1.0, 1.6, 1.7], "AR series");
+ok(verdictDetail(arStudy).includes("axial ratio"), "the verdict names the axial ratio that is still moving");
+eq(reportRows(study)[0].ar, null, "without an AR tolerance the row has no value but does not throw");
 
 // 3. navigation tree
 const runs = ["p-40.json", "p-30.json", "plain.json"].map((file) => ({ file, label: file, sub: "", title: file }));
@@ -128,6 +147,11 @@ ok(dialog.includes("longStudyWarning") && dialog.includes("estimateTime"), "the 
 ok(dialog.includes("setDensity(d, c)"), "the dialog applies the converged density");
 const server = src("python/fairbeam/server.py");
 ok(server.includes('r"/api/convergence"') && server.includes('r"/api/convergence/(cv-[\\w-]+)"'), "server routes");
+ok(server.includes("enable_cp"), "the server turns circular-polarisation outputs on for an AR study");
+ok(en["conv.col.ar"] === "AR (dB)" && !!en["conv.tol.ar"] && !!en["conv.plot.ar"] && !!en["conv.why.ar"],
+  "i18n: the AR column, tolerance, plot and verdict reason");
+ok(dialog.includes('t("conv.tol.ar.enable")') && dialog.includes('t("conv.col.ar")') && dialog.includes('k="ar_db"'),
+  "the dialog offers the AR opt-in, column and plot");
 
 // 2b. no resonance in the band: a minimum at the band edge is not a resonance, so a study
 // of such runs is not comparable and must never report "converged" (python/fairbeam/convergence.py)

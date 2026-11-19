@@ -439,7 +439,9 @@ fairbeam converge my.design.json --densities 15,20,30,40 --max-runs 4 --engine g
 It runs the design at each `cells_per_wavelength` in turn (the Auto mode's override, or
 `mesh.cells_per_wavelength` in the legacy mode; an explicit air density scales with it) and stops
 at the first step where the resonance moved less than 0.5 %, |S11| there less than 1 dB and Dmax
-less than 0.2 dB ("converged at" the coarser density of that step). Manual mesh lines are refused. Each run of the study is `fairbeam run --mesh-density CELLS` on the design.
+less than 0.2 dB ("converged at" the coarser density of that step). Adding `--tol-ar 0.5` also
+requires the peak axial ratio to stop changing (it turns the runs' circular-polarisation outputs on;
+the far field is already computed for Dmax). Manual mesh lines are refused. Each run of the study is `fairbeam run --mesh-density CELLS` on the design.
 The patch starter design (`template: patch`, 2.45 GHz, MUR, −60 dB), GPU engine, 2026-09-28:
 
 | Cells/λ | Cells | Resonance | Δf | \|S11\| | Δ\|S11\| | Dmax | Zin | Wall time |

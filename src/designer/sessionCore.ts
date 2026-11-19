@@ -7,6 +7,7 @@ import type { Check } from "./checks";
 import { paramValues } from "./expr";
 import { historyLabel, inferLabel, mergesWithPrevious } from "./historyLabels";
 import { DesignerAsyncState, newDesignerSessionId } from "./asyncState";
+import { ensureDesign } from "./designDefaults";
 
 type HistoryEntry = { text: string; label: string; at: number; target: string };
 export interface HistoryStep { index: number; label: string; at: number; target: string; current: boolean }
@@ -373,16 +374,16 @@ export function createDesignerSession(effects: DesignerSessionEffects = {}) {
       documentChangeObserver?.();
       if (disposed) return;
       const previous = file();
-      const design = withElementSymbols(next.design);
+      const design = ensureDesign(withElementSymbols(next.design));   // optional sections filled once: file and draft stay byte-identical for `dirty`
       forgetSaveNote();
       asyncState.replaceDocument();
       batch(() => {
-        setFile(next);
+        setFile({ ...next, design });
         setPersistencePending(false);
         setPendingResultsToken("[]");
         // Keep JSON key order independent when replacing a different document.
         if (previous?.id !== next.id) setDraft(reconcile({} as Design));
-        setDraft(reconcile(design));
+        setDraft(reconcile(structuredClone(design)));
         resetHistory(design);
         setServerErrors({}); setServerChecks([]); setChecksTicket(null);
         setConflict(null); setSelection({ type: "design" }); setSaving(false);
@@ -390,7 +391,7 @@ export function createDesignerSession(effects: DesignerSessionEffects = {}) {
     }
     function restoreBackup(design: Design, at: number) {
       if (disposed || !file()) return;
-      design = withElementSymbols(design);
+      design = ensureDesign(withElementSymbols(design));
       setUndoStack([savedDesignText()]);
       setDraft(reconcile(structuredClone(design)));
       history.push({ text: JSON.stringify(design), label: "Restored backup", at, target: "design" });

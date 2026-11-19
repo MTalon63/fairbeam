@@ -91,10 +91,15 @@ def summarize(bundle: dict) -> dict:
         "reactance_zeros": reactance_zeros(bundle),
         "farfield": [{"f": e["f"], "dmax_dbi": e["dmax_dbi"], "dmax_pattern_dbi": e.get("dmax_pattern_dbi"),
                       "rad_efficiency": e["rad_efficiency"],
-                      "gain_dbi": e.get("gain_dbi"), "realized_gain_dbi": e.get("realized_gain_dbi")}
+                      "gain_dbi": e.get("gain_dbi"), "realized_gain_dbi": e.get("realized_gain_dbi"),
+                      "axial_ratio_db": (((e.get("cp") or {}).get("peak")) or {}).get("axial_ratio_db")}
                      for e in ff_list],
         "dmax_dbi": ff["dmax_dbi"] if ff else None,
         "rad_efficiency": ff["rad_efficiency"] if ff else None,
+        # peak and boresight axial ratio of the far-field frequency used for dmax_dbi; present only when
+        # the run computed circular-polarisation outputs (a convergence study with --tol-ar forces them)
+        "axial_ratio_db": (((ff or {}).get("cp") or {}).get("peak") or {}).get("axial_ratio_db"),
+        "axial_ratio_boresight_db": (((ff or {}).get("cp") or {}).get("boresight") or {}).get("axial_ratio_db"),
         "cells": (bundle.get("mesh") or {}).get("total_cells"),
         "min_cell": (bundle.get("mesh") or {}).get("min_cell"),
         "max_cell": (bundle.get("mesh") or {}).get("max_cell"),
@@ -488,6 +493,9 @@ def add_commands(sub, defaults: dict):
                    help="tolerance of |S11| at the resonance in dB (default 1)")
     p.add_argument("--tol-dmax", "--tol-d", dest="tol_d", type=float,
                    help="Dmax tolerance in dB (default 0.2 for a design, 0.1 with --param)")
+    p.add_argument("--tol-ar", type=float, metavar="DB",
+                   help="opt-in: also require the peak axial ratio to change by less than this many dB "
+                        "(designs only; turns the run's circular-polarisation outputs on)")
     p.add_argument("--max-runs", type=int, default=DEFAULT_MAX_RUNS,
                    help="designs: stop after this many runs (default 4)")
     p.add_argument("--max-density", type=float, help="designs: leave out densities above this")
@@ -512,6 +520,9 @@ def _cmd_converge(args):
     automatic mesh density is refined (fairbeam.convergence)."""
     args.network_criteria = parse_network_criteria(args.network_metric, args.network_frequency)
     if args.param:
+        if args.tol_ar is not None:
+            raise SystemExit("fairbeam: --tol-ar needs a design (.design.json); it turns the run's "
+                             "circular-polarisation outputs on")
         if args.tol_d is None:
             args.tol_d = 0.1
         return _cmd_study(args, "convergence")
@@ -519,7 +530,8 @@ def _cmd_converge(args):
     from .convergence import format_table, run_convergence
 
     pattern = [float(x) * 1e9 for x in args.pattern.split(",")] if args.pattern else None
-    tol = {"f_pct": args.tol_f, "s11_db": args.tol_s11, "dmax_db": 0.2 if args.tol_d is None else args.tol_d}
+    tol = {"f_pct": args.tol_f, "s11_db": args.tol_s11, "dmax_db": 0.2 if args.tol_d is None else args.tol_d,
+           "ar_db": args.tol_ar}
     study = run_convergence(args.model, densities=args.densities, tol=tol, max_runs=args.max_runs,
                             max_density=args.max_density, fixed=_overrides(args.set), name=args.name,
                             out=Path(args.out), sim_root=Path(args.sim_root), threads=args.threads,

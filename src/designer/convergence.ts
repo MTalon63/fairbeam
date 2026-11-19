@@ -10,6 +10,8 @@ import { networkLabel, networkReason, type NetworkConfig, type NetworkMeasuremen
 export const DENSITY_KEY = "mesh.cells_per_wavelength";
 export const DEFAULT_DENSITIES = [15, 20, 30, 40];
 export const DEFAULT_TOL = { f_pct: 0.5, s11_db: 1, dmax_db: 0.2 };
+/** the opt-in axial-ratio tolerance (dB) the dialog's checkbox starts from; the criterion is off by default */
+export const DEFAULT_AR_DB = 0.5;
 export const DEFAULT_MAX_RUNS = 4;
 export const MAX_DENSITIES = 12;
 /** above this total estimate the dialog warns before starting (seconds); the estimate is shown in whole
@@ -17,7 +19,8 @@ export const MAX_DENSITIES = 12;
  * study long next to an estimate that reads "10 min" */
 export const WARN_SECONDS = 600;
 
-export type Tolerances = typeof DEFAULT_TOL;
+/** the server's tolerances; `ar_db` is a number only when the axial-ratio criterion is on (null/absent = off) */
+export type Tolerances = typeof DEFAULT_TOL & { ar_db?: number | null };
 
 /** "15, 20, 30, 40" -> numbers, coarse to fine, or the reason they cannot run. */
 export function parseDensities(text: string): { values: number[]; error?: string } {
@@ -103,6 +106,10 @@ export interface ConvergenceMetrics {
   no_resonance?: boolean;
   s11_db: number | null;
   dmax_dbi: number | null;
+  /** peak axial ratio (dB) of the far-field frequency used for `dmax_dbi`; present only when the run
+   * computed circular-polarisation outputs (an `ar_db` tolerance makes the study force them on) */
+  ar_db?: number | null;
+  ar_boresight_db?: number | null;
   zin_re: number | null;
   zin_im: number | null;
   cells?: number | null;
@@ -117,8 +124,9 @@ export interface ConvergenceStep {
   df_pct: number | null;
   ds11_db: number | null;
   ddmax_db: number | null;
+  dar_db: number | null;
   dzin_ohm: number | null;
-  ok: { f: boolean; s11: boolean; dmax: boolean | null };
+  ok: { f: boolean; s11: boolean; dmax: boolean | null; ar?: boolean | null };
   /** false when either run has no resonance in the band: the step says nothing and never converges
    * (absent in a study written before this field: comparable) */
   comparable?: boolean;
@@ -160,6 +168,8 @@ export interface ReportRow {
   ds11: number | null;
   dmax: number | null;
   ddmax: number | null;
+  ar: number | null;
+  dar: number | null;
   zin: string;
   dz: number | null;
   time: number | null;
@@ -186,6 +196,7 @@ export function reportRows(study: ConvergenceStudy): ReportRow[] {
       fGhz: x.f_res != null ? x.f_res / 1e9 : null, df: st?.df_pct ?? null,
       s11: x.s11_db ?? null, ds11: st?.ds11_db ?? null,
       dmax: x.dmax_dbi ?? null, ddmax: st?.ddmax_db ?? null,
+      ar: x.ar_db ?? null, dar: st?.dar_db ?? null,
       zin, dz: st?.dzin_ohm ?? null, time: x.wall_time_s ?? null,
       ok: st && st.comparable !== false ? st.converged : null, notComparable: st?.comparable === false,
       noResonance: x.no_resonance === true, chosen: conv.converged_at === m.density,
@@ -194,7 +205,7 @@ export function reportRows(study: ConvergenceStudy): ReportRow[] {
 }
 
 /** A quantity against the density, for the report's small plots. */
-export function series(study: ConvergenceStudy, key: "f_res" | "s11_db" | "dmax_dbi"): { x: number; y: number }[] {
+export function series(study: ConvergenceStudy, key: "f_res" | "s11_db" | "dmax_dbi" | "ar_db"): { x: number; y: number }[] {
   const div = key === "f_res" ? 1e9 : 1;
   return study.members.flatMap((m) => {
     const v = m.metrics?.[key];
@@ -267,6 +278,10 @@ export function verdictDetail(study: ConvergenceStudy): string {
     why.push(t("conv.why.s11", { ...at, value: fmt.num(Math.abs(step.ds11_db), 2), limit: fmt.num(c.tolerances.s11_db, 4) }));
   if (step.ok.dmax === false && step.ddmax_db != null)
     why.push(t("conv.why.dmax", { ...at, value: fmt.num(Math.abs(step.ddmax_db), 2), limit: fmt.num(c.tolerances.dmax_db, 4) }));
+  if (step.ok.ar === false && step.dar_db != null)
+    why.push(t("conv.why.ar", { ...at, value: fmt.num(Math.abs(step.dar_db), 2), limit: fmt.num(c.tolerances.ar_db ?? 0, 4) }));
+  else if (step.ok.ar === false)
+    why.push(t("conv.why.arMissing", at));
   return why.length ? t("conv.verdict.notConvergedWhy", { why: why.join("; ") }) : verdictText(c.verdict);
 }
 
